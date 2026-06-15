@@ -1,29 +1,21 @@
 # AGENTS.md
 
-- Make the smallest correct change.
-- Do not refactor unrelated code.
+- Read `AGENTS.md` first, then read `README.md`.
+- Read `docs/testing_workflow.md` before choosing verification steps or changing the documented test battery.
+- Treat `README.md` as the repo briefing for future agents.
+- Keep `README.md` detailed and current when repo structure, architecture, feature surface, or verification guidance changes.
+- Keep `docs/testing_workflow.md` current when the standard battery, targeted checks, recurring failure guidance, or manual QA surface changes.
+- Refresh the repo tree in `README.md` whenever files or folders materially change.
+- Make the smallest correct change and do not refactor unrelated code.
 - Prefer existing patterns over new abstractions.
-
-## Architecture
-
 - Keep business logic outside SwiftUI views when possible.
 - Keep planner logic testable and deterministic.
-- SwiftData owns app data.
-- EventKit writes should stay inside Planner / ScheduledBlock flows.
-
-## Verification
-
-- Prefer targeted tests/checks over full-suite runs.
-- Do not run iPhone simulator tests by default.
-- Prefer deterministic, non-simulator checks first (targeted test scopes and build checks).
-- Use iPhone simulator testing sparingly, only when required for the change or for a larger milestone QA pass.
-- Do not claim UI behavior was verified unless actually tested.
-- Clearly state what still needs manual QA.
-
-## Stop and ask before
-
-- changing architecture,
-- adding dependencies,
-- touching sync behavior,
-- changing persistence models broadly,
-- editing many unrelated files.
+- SwiftData owns app data; EventKit writes stay inside Planner / ScheduledBlock flows.
+- Prefer targeted deterministic checks over full-suite or simulator-first validation.
+- Use the standard test battery from `docs/testing_workflow.md` and run the narrowest relevant subset for the area you touched.
+- If you touch a large or deeply nested SwiftUI body, include `bash scripts/check_swift_typecheck_complexity.sh` in the verification plan unless an environment limitation prevents it.
+- Avoid simulator testing by default to conserve tokens; only use it when the change genuinely requires runtime UI verification.
+- Remember the coding agent may be running in a sandboxed environment with restricted simulator, UI, filesystem, or OS-service access. Do not waste time repeatedly debugging or "fixing" environment limitations the agent cannot control; identify the limitation clearly, report it, and move on to the narrowest useful verification the agent can actually perform.
+- If `xcodebuild` fails with CoreSimulator, `actool`, provisioning-profile, or DerivedData permission errors, use `bash scripts/diagnose_ios_dev_env.sh` when it is relevant and otherwise report the limitation instead of looping on the same failure.
+- Do not claim manual/UI verification unless you actually performed it.
+- Stop and ask before changing architecture, adding dependencies, touching sync behavior, broadly changing persistence, or editing many unrelated files.

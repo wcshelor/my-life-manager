@@ -52,6 +52,21 @@ struct SwiftDataViceRepositoryTests {
         #expect(try repository.fetchViceLogs().contains(inWindow) == false)
     }
 
+    @Test @MainActor func repositoryRoundTripsViceSessions() throws {
+        let repository = try makeRepository()
+        let vice = Vice(name: "Dab Pen", unitLabel: "Hits")
+        let session = ViceSession(
+            viceID: vice.id,
+            startedAt: Date(timeIntervalSince1970: 1_000),
+            lastHitAt: Date(timeIntervalSince1970: 2_000),
+            hitCount: 4
+        )
+
+        try repository.saveViceSession(session)
+
+        #expect(try repository.fetchViceSessions() == [session])
+    }
+
     @MainActor
     private func makeRepository() throws -> SwiftDataViceRepository {
         let container = try ModelContainerFactory.makeInMemoryContainer()

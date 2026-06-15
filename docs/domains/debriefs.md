@@ -2,7 +2,7 @@
 
 ## What Debriefs Are
 
-A Debrief is a lightweight reflection attached to a calendar event that already happened.
+A Debrief is a lightweight reflection record attached to something that already happened.
 
 Debriefs exist to help the user:
 
@@ -11,18 +11,25 @@ Debriefs exist to help the user:
 - capture follow-ups, ideas, promises, and reminders before they disappear
 - close the loop instead of letting events vanish
 
+Debriefs are now lazy-first:
+
+- one tap on a quick outcome can be enough to complete the Debrief
+- an optional short note can be added immediately after the quick outcome
+- detailed prompts remain available but are never required
+
 User-facing language is **Debrief**.
 
 Block Focus is the separate intention layer that may exist before a Debrief. A Block Focus can link a calendar event to a project, suggest tasks, and store the user's intended focus for the block. Debriefs stay distinct from Block Focus: Debrief captures what actually happened after the event.
 
-## Calendar Relationship
+## Source Relationship
 
-Debriefs are primarily driven by external EventKit calendar events.
+Debriefs are app-owned SwiftData records with a source type. Current live queueing is still primarily driven by external EventKit calendar events, but the core model now supports other sources such as scheduled blocks, routines, music practice, meetings, social hangouts, jam sessions, vice sessions, and custom entries.
 
 - EventKit is used to read ended events that may need a Debrief.
 - Debriefs do not write events back to Apple Calendar.
 - Debriefs are app-owned SwiftData records.
 - If a matching Block Focus exists, Debriefs can read its linked project, selected tasks, and intention note for prefilling or task-outcome capture.
+- Vice sessions can create one pending Debrief after a session window ends without changing the Debrief storage model.
 
 This keeps calendar integration read-oriented while preserving app-owned reflection data.
 
@@ -58,9 +65,26 @@ Debrief records store created capture IDs so follow-through can be traced later.
 
 When a Work Block has a Block Focus with selected tasks, Debrief can show small task outcome cards for each selected task. Outcomes are stored in SwiftData so future project history can show completion, partial progress, blockers, and untouched tasks.
 
-## Templates In MVP
+## Templates
 
-### Work Block
+Debriefs use a template layer that defines:
+
+- quick outcomes
+- optional lightweight prompts
+- detailed prompts
+- applicable source types
+
+The current implementation includes:
+
+- Generic
+- Work Session
+- Meeting
+- Social Hangout
+- Piano Practice
+- Jam Session
+- Vice Session
+
+### Work Session
 
 Essential questions:
 
@@ -87,7 +111,7 @@ Essential questions:
 
 Optional detail includes decisions, open questions, deadlines, preparedness, participants, and next-meeting reminders.
 
-### Social
+### Social Hangout
 
 Essential questions:
 
@@ -97,7 +121,7 @@ Essential questions:
 
 Optional detail includes people, learned context, promises, next-time notes, and nourishing/obligatory feel.
 
-## Queue Eligibility In MVP
+## Queue Eligibility
 
 Pending Debrief candidates are recent ended events that pass basic filters:
 
@@ -107,7 +131,17 @@ Pending Debrief candidates are recent ended events that pass basic filters:
 - not already Debriefed or marked no-Debrief-needed
 - excludes obvious passive/system-like event titles when possible
 
-Template suggestion is title-keyword based and always user-overridable.
+Template selection is deterministic and always user-overridable.
+
+Current inference rules:
+
+- vice session source -> Vice Session
+- music practice source -> Piano Practice
+- meeting source -> Meeting
+- social hangout source -> Social Hangout
+- jam session source -> Jam Session
+- calendar/scheduled block source -> Work Session by default
+- custom source -> Generic, with lightweight title-keyword fallback
 
 ## Trend Data Purpose
 
@@ -134,5 +168,5 @@ No shame-based scoring is used.
 
 ## Scope Notes
 
-- Music Practice Debriefs are out of scope for now. Music Practice remains in its own module.
 - Planner auto-generation/suggestion behavior remains available, but it is supporting behavior, not the center of the Debrief workflow.
+- The current Vices UI still centers on one-tap hit logging, but those hits are now grouped into vice sessions behind the scenes so eligible sessions can create a single pending `viceSession` Debrief when the window closes.

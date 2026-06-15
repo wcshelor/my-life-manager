@@ -125,6 +125,17 @@ struct DebriefQueueServiceTests {
         #expect(CalendarDebriefRecord.suggestedTemplate(for: "Weekly meeting") == .meeting)
         #expect(CalendarDebriefRecord.suggestedTemplate(for: "Dinner with Anna") == .social)
         #expect(CalendarDebriefRecord.suggestedTemplate(for: "Deep work coding") == .workBlock)
-        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Untitled Event") == .workBlock)
+        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Piano scales") == .pianoPractice)
+        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Untitled Event") == .generic)
+    }
+
+    @Test func templateInferenceUsesSourceTypeDefaults() {
+        let service = DebriefTemplateInferenceService()
+
+        #expect(service.inferredTemplate(sourceType: .viceSession) == .viceSession)
+        #expect(service.inferredTemplate(sourceType: .musicPracticeSession) == .pianoPractice)
+        #expect(service.inferredTemplate(sourceType: .meeting) == .meeting)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Weekly meeting") == .workBlock)
+        #expect(service.inferredTemplate(sourceType: .custom, title: "Weekly meeting") == .meeting)
     }
 }

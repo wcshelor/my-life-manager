@@ -3,8 +3,11 @@ import SwiftUI
 @MainActor
 struct HomeWidgetRenderContext {
     let execution: HomeExecutionViewModel
+    let isEditing: Bool
     let descriptor: (HomeWidgetKind) -> HomeWidgetDescriptor?
+    let definition: (HomeWidgetModule) -> HomeWidgetDefinition?
     let perform: (HomeWidgetDefaultAction, HomeWidgetInstance) -> Void
+    let performQuickAction: (String, HomeWidgetInstance) -> Void
     let openProject: (UUID) -> Void
     let openRoutine: (UUID) -> Void
     let checkInPromise: (Promise) -> Void
@@ -94,67 +97,52 @@ struct HomeWidgetRendererRegistry {
                     context.perform(.openCapture, widget)
                 }
             },
+            AnyHomeWidgetRenderer(kind: .appUpdateReminder) { _, context in
+                HomeAppUpdateReminderWidget(summary: context.execution.appUpdateReminderSummary)
+            },
             AnyHomeWidgetRenderer(kind: .moduleCarousel) { _, context in
                 HomeModuleCarouselWidget(context: context)
             },
             AnyHomeWidgetRenderer(kind: .tasksModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Tasks",
-                    systemImage: "checklist",
-                    detail: "\(context.execution.activeTaskCount) active",
-                    action: "Open Tasks",
-                    perform: { context.perform(.openTasks, widget) }
+                    context: context,
+                    fallbackDetail: "\(context.execution.activeTaskCount) active"
                 )
             },
             AnyHomeWidgetRenderer(kind: .plannerModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Planner",
-                    systemImage: "calendar",
-                    detail: context.execution.plannerSummary,
-                    action: "Plan the Day",
-                    perform: { context.perform(.openPlanner, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.plannerSummary
                 )
             },
             AnyHomeWidgetRenderer(kind: .projectsModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Projects",
-                    systemImage: "folder.fill",
-                    detail: "\(context.execution.projects.count) active",
-                    action: "Open Projects",
-                    perform: { context.perform(.openProjects, widget) }
+                    context: context,
+                    fallbackDetail: "\(context.execution.projects.count) active"
                 )
             },
             AnyHomeWidgetRenderer(kind: .promisesModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Promises",
-                    systemImage: "hand.raised.fill",
-                    detail: "\(context.execution.activePromises.count) active",
-                    action: "New Promise",
-                    perform: { context.perform(.newPromise, widget) }
+                    context: context,
+                    fallbackDetail: "\(context.execution.activePromises.count) active"
                 )
             },
             AnyHomeWidgetRenderer(kind: .routinesModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Routines",
-                    systemImage: "checklist.checked",
-                    detail: "\(context.execution.routineProgress.count) today",
-                    action: "New Routine",
-                    perform: { context.perform(.newRoutine, widget) }
+                    context: context,
+                    fallbackDetail: "\(context.execution.routineProgress.count) today"
                 )
             },
             AnyHomeWidgetRenderer(kind: .shoppingModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Shopping",
-                    systemImage: "cart.fill",
-                    detail: "\(context.execution.activeShoppingItemCount) needed",
-                    action: "Open Shopping",
-                    perform: { context.perform(.openShopping, widget) }
+                    context: context,
+                    fallbackDetail: "\(context.execution.activeShoppingItemCount) needed"
                 )
             },
             AnyHomeWidgetRenderer(kind: .shoppingQuickAdd) { widget, context in
@@ -170,61 +158,43 @@ struct HomeWidgetRendererRegistry {
             AnyHomeWidgetRenderer(kind: .healthModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Health",
-                    systemImage: "heart.text.square",
-                    detail: context.execution.healthSummary.detail,
-                    action: "Open Health",
-                    perform: { context.perform(.openHealth, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.healthSummary.detail
                 )
             },
             AnyHomeWidgetRenderer(kind: .musicPracticeModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Music Practice",
-                    systemImage: "music.note.list",
-                    detail: context.execution.musicPracticeSummary.detail,
-                    action: "Open Practice",
-                    perform: { context.perform(.openMusicPractice, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.musicPracticeSummary.detail
                 )
             },
             AnyHomeWidgetRenderer(kind: .fitnessModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Fitness",
-                    systemImage: "dumbbell.fill",
-                    detail: context.execution.fitnessSummary.detail,
-                    action: "Open Fitness",
-                    perform: { context.perform(.openFitness, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.fitnessSummary.detail
                 )
             },
             AnyHomeWidgetRenderer(kind: .peopleMemoryModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "People",
-                    systemImage: "person.2.fill",
-                    detail: context.execution.peopleMemorySummary.detail,
-                    action: "Open People",
-                    perform: { context.perform(.openPeopleMemory, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.peopleMemorySummary.detail
                 )
             },
             AnyHomeWidgetRenderer(kind: .vicesModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Vices",
-                    systemImage: "flame.fill",
-                    detail: context.execution.vicesSummary.detail,
-                    action: "Open Vices",
-                    perform: { context.perform(.openVices, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.vicesSummary.detail
                 )
             },
             AnyHomeWidgetRenderer(kind: .budgetModule) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Finance",
-                    systemImage: "creditcard.fill",
-                    detail: context.execution.financeSummary.detail,
-                    action: "Open Finance",
-                    perform: { context.perform(.openFinance, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.financeSummary.detail
                 )
             },
             AnyHomeWidgetRenderer(kind: .calendarOverview) { widget, context in
@@ -233,11 +203,8 @@ struct HomeWidgetRendererRegistry {
             AnyHomeWidgetRenderer(kind: .planTheDay) { widget, context in
                 HomeModuleRenderer.render(
                     widget: widget,
-                    title: "Plan the Day",
-                    systemImage: "calendar.badge.plus",
-                    detail: context.execution.plannerSummary,
-                    action: "Open Planner",
-                    perform: { context.perform(.openPlanner, widget) }
+                    context: context,
+                    fallbackDetail: context.execution.plannerSummary
                 )
             },
             AnyHomeWidgetRenderer(kind: .nextEvent) { widget, context in
@@ -275,32 +242,135 @@ private enum HomeModuleRenderer {
     @ViewBuilder
     static func render(
         widget: HomeWidgetInstance,
-        title: String,
-        systemImage: String,
-        detail: String,
-        action: String,
-        perform: @escaping () -> Void
+        context: HomeWidgetRenderContext,
+        fallbackDetail: String
     ) -> some View {
-        if widget.size == .small {
-            Button(action: perform) {
-                HomeSmallStaticWidget(
-                    title: title,
-                    systemImage: systemImage,
-                    value: detail.components(separatedBy: " ").first ?? "Open",
-                    detail: action
-                )
+        let descriptor = context.descriptor(widget.kind)
+        let definition = descriptor.flatMap { context.definition($0.module) }
+
+        HomeModuleWidgetCard(
+            title: definition?.title ?? descriptor?.displayName ?? "Module",
+            systemImage: definition?.iconSystemName ?? descriptor?.iconSystemName ?? "square.grid.2x2",
+            detail: widget.size == .large ? fallbackDetail : nil,
+            quickActions: resolvedQuickActions(for: widget, descriptor: descriptor, definition: definition),
+            isEditing: context.isEditing,
+            onPrimaryTap: {
+                guard let action = descriptor?.defaultAction else {
+                    return
+                }
+                context.perform(action, widget)
+            },
+            onQuickActionTap: { actionID in
+                context.performQuickAction(actionID, widget)
             }
-            .buttonStyle(.plain)
-        } else {
-            Button(action: perform) {
-                HomeModuleWidgetCard(
-                    title: title,
-                    systemImage: systemImage,
-                    detail: detail,
-                    action: action
+        )
+    }
+
+    private static func resolvedQuickActions(
+        for widget: HomeWidgetInstance,
+        descriptor: HomeWidgetDescriptor?,
+        definition: HomeWidgetDefinition?
+    ) -> [WidgetQuickAction] {
+        guard let definition else {
+            return []
+        }
+
+        let availableIDs = Set(definition.availableQuickActions.map(\.id))
+        let preferredIDs = widget.configuration.selectedQuickActionIDs.isEmpty
+            ? definition.sanitizedDefaultQuickActionIDs
+            : widget.configuration.selectedQuickActionIDs.filter { availableIDs.contains($0) }
+        let selectedIDs = preferredIDs.prefix(2)
+        let resolved = definition.availableQuickActions.filter { selectedIDs.contains($0.id) }
+
+        if resolved.isEmpty, let action = descriptor?.defaultAction {
+            return [
+                WidgetQuickAction(
+                    id: "default-\(descriptor?.kind.rawValue ?? definition.moduleID)",
+                    title: title(for: action),
+                    systemImage: icon(for: action),
+                    role: nil
                 )
-            }
-            .buttonStyle(.plain)
+            ]
+        }
+
+        return resolved
+    }
+
+    private static func title(for action: HomeWidgetDefaultAction) -> String {
+        switch action {
+        case .openCapture:
+            return "Capture"
+        case .reviewInbox:
+            return "Review"
+        case .openTasks:
+            return "Open Tasks"
+        case .openPlanner:
+            return "Open Planner"
+        case .openDebriefs:
+            return "Debriefs"
+        case .openProjects:
+            return "Open Projects"
+        case .openConfiguredProject:
+            return "Open Project"
+        case .newPromise:
+            return "New Promise"
+        case .checkInDuePromise:
+            return "Check In"
+        case .newRoutine:
+            return "New Routine"
+        case .openConfiguredRoutine:
+            return "Open Routine"
+        case .openShopping:
+            return "Open Shopping"
+        case .quickAddShopping:
+            return "Add Item"
+        case .openHealth:
+            return "Open Health"
+        case .openMusicPractice:
+            return "Open Practice"
+        case .openFitness:
+            return "Open Fitness"
+        case .openPeopleMemory:
+            return "Open People"
+        case .openVices:
+            return "Open Vices"
+        case .openFinance:
+            return "Open Finance"
+        }
+    }
+
+    private static func icon(for action: HomeWidgetDefaultAction) -> String {
+        switch action {
+        case .openCapture:
+            return "tray.and.arrow.down"
+        case .reviewInbox:
+            return "tray.full.fill"
+        case .openTasks:
+            return "checklist"
+        case .openPlanner, .openConfiguredRoutine:
+            return "calendar"
+        case .openDebriefs:
+            return "arrow.trianglehead.2.clockwise.rotate.90"
+        case .openProjects, .openConfiguredProject:
+            return "folder.fill"
+        case .newPromise, .checkInDuePromise:
+            return "hand.raised.fill"
+        case .newRoutine:
+            return "checklist.checked"
+        case .openShopping, .quickAddShopping:
+            return "cart.fill"
+        case .openHealth:
+            return "heart.text.square"
+        case .openMusicPractice:
+            return "music.note.list"
+        case .openFitness:
+            return "dumbbell.fill"
+        case .openPeopleMemory:
+            return "person.2.fill"
+        case .openVices:
+            return "flame.fill"
+        case .openFinance:
+            return "creditcard.fill"
         }
     }
 }
@@ -551,35 +621,67 @@ private enum HomeRoutinesRenderer {
 struct HomeModuleWidgetCard: View {
     let title: String
     let systemImage: String
-    let detail: String
-    let action: String
+    let detail: String?
+    let quickActions: [WidgetQuickAction]
+    let isEditing: Bool
+    let onPrimaryTap: () -> Void
+    let onQuickActionTap: (String) -> Void
 
     var body: some View {
         HomeWidgetCardSurface {
-            HStack(spacing: 14) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-                    .frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 14) {
+                    Image(systemName: systemImage)
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                        .frame(width: 34, height: 34)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
 
-                Spacer()
+                        if let detail, detail.isEmpty == false {
+                            Text(detail)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
 
-                HStack(spacing: 4) {
-                    Text(action)
-                        .font(.caption.weight(.semibold))
+                    Spacer()
+
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
+                        .foregroundStyle(.blue.opacity(isEditing ? 0.4 : 0.9))
                 }
-                .foregroundStyle(.blue)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard isEditing == false else {
+                        return
+                    }
+                    onPrimaryTap()
+                }
+
+                if quickActions.isEmpty == false {
+                    moduleQuickActionRow
+                }
+            }
+        }
+    }
+
+    private var moduleQuickActionRow: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(quickActions.prefix(2))) { action in
+                Button {
+                    onQuickActionTap(action.id)
+                } label: {
+                    Label(action.title, systemImage: action.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isEditing)
             }
         }
     }
@@ -691,6 +793,51 @@ struct HomeActionWidget: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct HomeAppUpdateReminderWidget: View {
+    let summary: HomeAppUpdateReminderSummary?
+
+    var body: some View {
+        HomeWidgetCardSurface(fillOpacity: 0.055, strokeOpacity: 0.12) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.title3)
+                        .foregroundStyle(.orange)
+                        .frame(width: 30)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("App Refresh")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Text(summary?.countdownLabel ?? "Tracking the last install")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+
+                    Spacer()
+                }
+
+                if let summary {
+                    Text(summary.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+
+                    Text(summary.hint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                } else {
+                    Text("Open the app once after each reinstall to keep the reminder current.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+            }
+        }
     }
 }
 

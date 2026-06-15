@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct ShoppingListView: View {
@@ -290,7 +291,7 @@ private struct ShoppingItemRow: View {
     }
 }
 
-struct ShoppingItemFormData: Equatable {
+nonisolated struct ShoppingItemFormData: Equatable, Sendable {
     var title: String
     var notes: String
     var category: String
@@ -385,7 +386,7 @@ enum ShoppingItemFieldSuggestions {
     ]
 }
 
-private struct ShoppingItemFormView: View {
+struct ShoppingItemFormView: View {
     @Environment(\.dismiss) private var dismiss
 
     let initialItem: ShoppingItem

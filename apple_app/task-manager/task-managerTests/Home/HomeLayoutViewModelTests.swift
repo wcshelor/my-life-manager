@@ -388,6 +388,54 @@ struct HomeLayoutViewModelTests {
 
         #expect(viewModel.widgets.map(\.kind) == [.tasksModule, .promises])
     }
+
+    @Test func registryProvidesQuickActionDefinitionsForAllModuleWidgets() throws {
+        let viewModel = HomeLayoutViewModel(
+            homeLayoutRepository: InMemoryHomeLayoutRepository(layout: HomeLayout(widgets: []))
+        )
+
+        let moduleDescriptors = viewModel.registry.descriptors.filter(\.isModuleWidget)
+
+        #expect(moduleDescriptors.isEmpty == false)
+
+        for descriptor in moduleDescriptors {
+            let definition = try #require(viewModel.registry.definition(for: descriptor.module))
+            #expect(definition.availableQuickActions.isEmpty == false)
+            #expect(definition.sanitizedDefaultQuickActionIDs.isEmpty == false)
+            #expect(definition.sanitizedDefaultQuickActionIDs.count <= 2)
+            #expect(Set(definition.sanitizedDefaultQuickActionIDs).isSubset(of: Set(definition.availableQuickActions.map(\.id))))
+        }
+    }
+
+    @Test func viewModelPersistsUpdatedQuickActionSelection() throws {
+        let repository = InMemoryHomeLayoutRepository(
+            layout: HomeLayout(
+                widgets: [
+                    HomeWidgetInstance(kind: .tasksModule, size: .small, sortOrder: 0),
+                ]
+            )
+        )
+        let viewModel = HomeLayoutViewModel(homeLayoutRepository: repository)
+        viewModel.load()
+
+        var widget = try #require(viewModel.widgets.first)
+        widget.configuration.selectedQuickActionIDs = ["capture", "today"]
+        widget.configuration.normalizeQuickActions()
+        viewModel.updateWidgetConfiguration(widget)
+
+        #expect(viewModel.widgets.first?.configuration.selectedQuickActionIDs == ["capture", "today"])
+        #expect(repository.layout.widgets.first?.configuration.selectedQuickActionIDs == ["capture", "today"])
+    }
+
+    @Test func widgetConfigurationNormalizesQuickActionsPreservingFirstTwoUniqueChoices() {
+        var configuration = HomeWidgetConfiguration(
+            selectedQuickActionIDs: ["today", "capture", "today", "overdue"]
+        )
+
+        configuration.normalizeQuickActions()
+
+        #expect(configuration.selectedQuickActionIDs == ["today", "capture"])
+    }
 }
 
 @MainActor

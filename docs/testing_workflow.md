@@ -9,11 +9,17 @@ Use `README.md`, `docs/life_assistant_vision.md`, and `docs/product_direction.md
 From the repo root, run:
 
 ```bash
-xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator build
-xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator build-for-testing
+DERIVED_DATA_PATH=/tmp/task-manager-derived-data
+xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator -derivedDataPath "$DERIVED_DATA_PATH" build
+xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator -derivedDataPath "$DERIVED_DATA_PATH" build-for-testing
+bash scripts/check_swift_typecheck_complexity.sh
 ```
 
 These are the default checks for coding sessions because they do not require booting a simulator runtime.
+
+Use a writable temporary `DerivedData` location in sandboxed or locked-down environments. The default Xcode path under `~/Library/Developer/Xcode/DerivedData` can fail before app code is evaluated with errors such as `Couldn't create workspace arena folder`, `Unable to write to info file`, or `Operation not permitted`.
+
+The compiler complexity guard runs the same simulator `build-for-testing` path with Swift frontend timing warnings enabled. It fails if a view body or expression starts taking long enough to type-check that it is likely to turn into Xcode's "unable to type-check this expression in reasonable time" error.
 
 Current automated confidence covers:
 
@@ -22,31 +28,93 @@ Current automated confidence covers:
 - planner view-model acceptance, rejection, lifecycle, and reconciliation behavior
 - EventKit adapter behavior with mocked stores
 - Home layout/execution view-model behavior, including capture conversion and module summaries
+- capture capability routing and candidate generation for Tasks, Shopping, and Music Practice
 - promise models, repositories, and Home aggregation behavior
 - routine models, repositories, and daily completion behavior
 - Shopping models, SwiftData repository round trips, view-model behavior, and inbox conversion
-- work-in-progress Health model calculations, SwiftData repository round trips, and Health view-model summaries
-- Fitness model validation, SwiftData repository round trips, Fitness view-model state, and Home Fitness summaries
+- Debrief model validation, queue filtering, queue-review composer state, and SwiftData round trips
+- work-in-progress Health model calculations, nutrition catalog search/custom-food persistence, SwiftData repository round trips, Health view-model summaries, and meal debrief reminder timing
+- Fitness model validation, SwiftData repository round trips, draft-session seeding, Fitness view-model state, and Home Fitness summaries
 - Music Practice model validation, SwiftData repository round trips, view-model behavior, and Home summaries
 - People Memory model validation, SwiftData repository round trips, view-model behavior, and Home summaries
+- Vices model validation, SwiftData repository round trips, undo behavior, vice session grouping, and vice-session Debrief generation
+
+## 1A. Area-Specific Battery Expectations
+
+Use the baseline battery above, then add the narrowest matching targeted checks for the area you changed.
+
+### Home / Capture / Widgets
+
+- update or inspect `apple_app/task-manager/task-managerTests/Home/HomeExecutionViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Home/HomeLayoutViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Models/CaptureCapabilityTests.swift`
+- manually verify Home widget summaries or Capture Review flows when the UI changed
+
+### Debriefs / Block Focus
+
+- update or inspect `apple_app/task-manager/task-managerTests/Debrief/DebriefComposerViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Debrief/DebriefModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Debrief/DebriefQueueFlowTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Debrief/DebriefQueueViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Debrief/DebriefQueueServiceTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Persistence/SwiftDataDebriefRepositoryTests.swift`
+- when touching `Features/Debrief/DebriefViews.swift`, run the iPhone-simulator `build`/`build-for-testing` first to catch actor-isolation and exhaustive-switch compile failures before chasing runtime behavior
+- if you see `Main actor-isolated instance method ... cannot be called from outside of the actor` or `Switch must be exhaustive` in Debrief code, inspect closure annotations and `DebriefTemplateKind` coverage before looking at UI logic
+- manually verify queue progression, quick-action auto-advance, pushed detail navigation, detailed prompts, and task-outcome UI only when those surfaces changed
+
+### Vices
+
+- update or inspect `apple_app/task-manager/task-managerTests/Vices/VicesViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Vices/ViceModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Vices/SwiftDataViceRepositoryTests.swift`
+- manually verify vice undo, active-session summaries, and Debrief handoff UI only when those surfaces changed
+
+### Fitness
+
+- update or inspect `apple_app/task-manager/task-managerTests/Fitness/FitnessModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Fitness/FitnessViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Fitness/SwiftDataFitnessRepositoryTests.swift`
+- run `bash scripts/check_swift_typecheck_complexity.sh` when touching large Fitness SwiftUI bodies, sheets, or navigation flows
+
+### Planner / Calendar / EventKit
+
+- update or inspect `apple_app/task-manager/task-managerTests/Planner/PlannerEngineTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Planner/PlannerViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Calendar/EventKitCalendarServicesTests.swift`
+- reserve real EventKit/manual verification for behavior that cannot be proven with repository or view-model tests
+
+### Health / Nutrition
+
+- update or inspect `apple_app/task-manager/task-managerTests/Health/HealthModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Health/HealthViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Health/SwiftDataHealthRepositoryTests.swift`
+- manually verify custom-food creation, food search suggestions, and multi-entry meal logging only when the Health Nutrition UI changes
 
 ## 2. Optional Simulator Swift Runs
 
 Use these only when simulator behavior is required for the change and CoreSimulator is available. Use `-only-testing` when narrowing scope, for example:
 
 ```bash
-xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.3.1' test -only-testing:task-managerTests/PlannerViewModelTests
-xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.3.1' test -only-testing:task-managerTests/HomeExecutionViewModelTests
+xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.3.1' -derivedDataPath /tmp/task-manager-derived-data test -only-testing:task-managerTests/PlannerViewModelTests
+xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.3.1' -derivedDataPath /tmp/task-manager-derived-data test -only-testing:task-managerTests/HomeExecutionViewModelTests
 ```
 
 Use the iPhone simulator SDK builds to catch cross-platform compile regressions even when no simulator runtime is installed:
 
 ```bash
-xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator build
-xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator build-for-testing
+xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator -derivedDataPath /tmp/task-manager-derived-data build
+xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -sdk iphonesimulator -derivedDataPath /tmp/task-manager-derived-data build-for-testing
 ```
 
 If `xcrun simctl list runtimes` or `xcrun simctl list devices available` is empty, treat iPhone confidence on that machine as build-only confidence.
+
+Recurring environment issue guidance:
+
+- if `xcodebuild` fails with `CoreSimulatorService`, `simdiskimaged`, `actool`, provisioning-profile, or DerivedData-permission errors, treat that as a machine or sandbox problem first
+- if the failure is `Couldn't create workspace arena folder`, `Unable to write to info file`, or another `Operation not permitted` error under `~/Library/Developer/Xcode/DerivedData`, rerun with `-derivedDataPath /tmp/task-manager-derived-data` before assuming app code is broken
+- if the failure is `No available simulator runtimes for platform iphonesimulator` or `SimServiceContext supportedRuntimes=[]`, treat that as a CoreSimulator runtime outage; simulator-targeted `actool` work cannot complete until the host machine exposes at least one runtime
+- run `bash scripts/diagnose_ios_dev_env.sh` when local environment diagnosis is relevant
+- do not burn time repeatedly rerunning the same command without changing the failure class
 
 ## 3. Manual Session Helper
 
@@ -58,9 +126,10 @@ bash scripts/manual_test_session.sh
 
 That helper:
 
-- runs an iPhone simulator build
+- runs an iPhone simulator build using a temporary DerivedData path
+- runs the Swift compiler complexity guard
 - creates a timestamped note in `docs/test_sessions/`
-- prints the next recommended Swift, EventKit, simulator, Home, Promises, and Routines validation steps
+- prints the next recommended Swift, EventKit, simulator, Home, Capture Review, Debrief, Vices, Finance, and routine validation steps
 
 Run simulator tests in the helper only when intentionally enabled:
 
@@ -79,6 +148,11 @@ Split manual testing by area depending on scope.
 Validate:
 
 - Home is the first visible tab
+- Home widgets render and launch the expected destination flows
+- long-pressing a Home widget enters edit mode, and edit-mode taps open widget quick-action editing instead of triggering the live widget action
+- module widgets show configurable in-card quick-action buttons and those selections persist after relaunch
+- the App Refresh widget shows the last sideload/update time and a weekly reinstall countdown
+- pending Debrief, Vices, People, Fitness, and other module summaries refresh after underlying data changes
 - new promise creation
 - active promise visibility on Home
 - active-promise banner on Tasks and Planner
@@ -107,7 +181,19 @@ Validate:
 - task create, edit, delete
 - search, sort, and grouping
 - quick complete, reopen, and archive flows
+- capture review still routes task-like captures through the shared task form when relevant
 - iPhone quick add and narrow-width task review if a simulator or device is available
+
+### Capture Review / Inbox
+
+Validate:
+
+- create or load a raw capture
+- confirm candidate groups appear for Tasks, Shopping, and Music Practice when applicable
+- convert one capture into a task
+- convert one capture into a shopping item
+- convert one capture into a practice piece
+- confirm processed captures leave the active review queue
 
 ### Calendar / Planner And EventKit
 
@@ -131,8 +217,13 @@ Validate:
 - completed PVT session saving
 - real-time PVT tap flow timing on device or simulator
 - meal and workout quick logs
+- custom food creation and persistence when Nutrition UI changes
+- food search suggestions and tap-to-fill behavior when Nutrition UI changes
+- multi-entry meal logging with servings and meal-level notes when Nutrition UI changes
+- meal debrief reminder timing that lands three hours after the meal timestamp
 - Health history and delete flows
 - neutral 7/30-day trend summaries
+- nutrient totals and 7/30-day nutrition aggregates when Nutrition trend UI changes
 
 ### Shopping
 
@@ -154,6 +245,7 @@ Validate:
 - create one strength exercise and one bike-style metric exercise
 - add existing exercises to a workout day
 - log sessions from both the exercise list and workout day flow
+- confirm draft quick-log values seed from the most recent session for that exercise
 - confirm last-session references refresh immediately
 - confirm logged-today state appears after same-day logging
 - confirm Recent, A-Z, and Tag sorting
@@ -177,6 +269,39 @@ Validate:
 - search by name, details, and tag text
 - start a study review and apply easy/almost/missed ratings
 - confirm due-review counts and saved-person counts refresh on Home
+
+### Debriefs / Block Focus
+
+Validate:
+
+- complete a Debrief from a quick outcome without opening detailed prompts
+- confirm Debriefs are presented one at a time like Capture Review
+- confirm tapping a quick debrief button saves immediately and advances to the next candidate
+- confirm the optional Later action moves the current candidate to the back of the in-memory queue
+- reopen the same Debrief into the detailed prompt flow
+- confirm a detailed Debrief save advances to the next candidate
+- confirm template inference matches the source type when applicable
+- when a Block Focus-backed work block exists, confirm selected-task outcomes can be reviewed without writing to Apple Calendar
+
+### Vices
+
+Validate:
+
+- create or edit a vice
+- log a hit from the main vice card
+- undo a recent hit inside the undo window
+- confirm repeated hits inside the session window aggregate into one active session
+- confirm session closure creates at most one pending Vice Session Debrief candidate
+
+### Finance
+
+Validate:
+
+- open Finance from Home
+- add one income and one expense
+- confirm the monthly balance updates
+- confirm category summaries and transaction history refresh
+- confirm delete flows still update the dashboard totals
 
 ### iPhone Runtime Pass
 
@@ -240,3 +365,15 @@ For each issue, capture:
 - whether it blocks testing or is polish
 
 Keep issue notes short during the session. Rewrite them later only if they turn into tracked bug work.
+
+## 7. Recurring Failure Themes To Test Ahead Of Time
+
+- SwiftUI compiler complexity:
+  - if a view body gained more nesting, more sheets, more navigation destinations, or more inline bindings, run `bash scripts/check_swift_typecheck_complexity.sh`
+  - if it reports long type-check warnings, split the body before merging
+- Cross-module Home regressions:
+  - if a feature publishes a Home summary, widget, or quick action, verify `HomeExecutionViewModelTests` and the matching manual Home summary flow
+- Debrief source drift:
+  - if a source type, template, or vice-session rule changes, verify both the data-model tests and the queue/composer behavior
+- Environment false negatives:
+  - if builds fail before Swift compilation because of simulator runtimes, provisioning profiles, or DerivedData permissions, diagnose and document the environment issue instead of misclassifying it as an app regression

@@ -9,6 +9,9 @@ struct SwiftDataDebriefRepositoryTests {
         let debriefID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174010")!
         let debrief = CalendarDebriefRecord(
             id: debriefID,
+            sourceType: .meeting,
+            sourceID: "meeting-1",
+            sourceContext: "Work weekly sync",
             eventKey: "event-key-1",
             eventIdentifier: "event-1",
             calendarIdentifier: "work-cal",
@@ -18,7 +21,16 @@ struct SwiftDataDebriefRepositoryTests {
             endDateSnapshot: Date(timeIntervalSince1970: 2_800),
             templateKind: .meeting,
             status: .completed,
+            quickOutcome: .useful,
+            quickNote: "Kept this short",
             essentialNote: "Agreed on milestones",
+            detailedResponses: [
+                DebriefPromptResponse(
+                    id: "decisions",
+                    prompt: "What decisions were made?",
+                    response: "Ship the new flow"
+                )
+            ],
             createdCaptureIDs: [UUID(uuidString: "123E4567-E89B-12D3-A456-426614174000")!],
             meetingOutcomes: "Milestones assigned",
             meetingFollowUps: "Send notes",

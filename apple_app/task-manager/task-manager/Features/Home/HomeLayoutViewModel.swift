@@ -195,6 +195,16 @@ final class HomeLayoutViewModel: ObservableObject {
         save(HomeLayout(version: layout.version, widgets: widgets, removedWidgets: layout.removedWidgets))
     }
 
+    func updateWidgetConfiguration(_ widget: HomeWidgetInstance) {
+        var widgets = layout.orderedWidgets
+        guard let index = widgets.firstIndex(where: { $0.id == widget.id }) else {
+            return
+        }
+
+        widgets[index].configuration = widget.configuration
+        save(HomeLayout(version: layout.version, widgets: widgets, removedWidgets: layout.removedWidgets))
+    }
+
     func canAdd(
         descriptor: HomeWidgetDescriptor,
         configuration: HomeWidgetConfiguration = .empty

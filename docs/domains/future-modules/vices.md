@@ -129,4 +129,16 @@ Start with one durable custom vice model and one event log model. Avoid building
 
 ## Status
 
-Planning only. No vices model, persistence, or UI exists yet.
+Vices now have a lightweight but real implemented surface in the iOS app:
+
+- app-owned `Vice`, `ViceLog`, and `ViceSession` SwiftData-backed records
+- a one-tap logging UI
+- basic summaries and undo
+- session grouping for repeated hits inside a fixed window
+- one pending Vice Session Debrief candidate when an eligible session closes
+
+Important nuance:
+
+- the visible UI still feels like atomic one-tap hit logging
+- session grouping and Debrief queueing happen behind the scenes in the repository/view-model layer
+- Debriefs v2 now uses `viceSession` as a durable source type and template target

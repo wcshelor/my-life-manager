@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 nonisolated enum HomeWidgetModule: String, Codable, CaseIterable, Sendable {
     case capture
@@ -14,6 +15,7 @@ nonisolated enum HomeWidgetModule: String, Codable, CaseIterable, Sendable {
     case peopleMemory
     case vices
     case finance
+    case app
     case future
 
     var displayName: String {
@@ -44,6 +46,8 @@ nonisolated enum HomeWidgetModule: String, Codable, CaseIterable, Sendable {
             return "Vices"
         case .finance:
             return "Finance"
+        case .app:
+            return "App"
         case .future:
             return "Planned"
         }
@@ -75,6 +79,7 @@ nonisolated struct HomeWidgetKind: RawRepresentable, Codable, Hashable, CaseIter
     static let currentRoutineStep = HomeWidgetKind(rawValue: "currentRoutineStep")
     static let promiseHistory = HomeWidgetKind(rawValue: "promiseHistory")
     static let shoppingQuickAdd = HomeWidgetKind(rawValue: "shoppingQuickAdd")
+    static let appUpdateReminder = HomeWidgetKind(rawValue: "appUpdateReminder")
     static let tasksModule = HomeWidgetKind(rawValue: "tasksModule")
     static let plannerModule = HomeWidgetKind(rawValue: "plannerModule")
     static let projectsModule = HomeWidgetKind(rawValue: "projectsModule")
@@ -104,6 +109,7 @@ nonisolated struct HomeWidgetKind: RawRepresentable, Codable, Hashable, CaseIter
         .currentRoutineStep,
         .promiseHistory,
         .shoppingQuickAdd,
+        .appUpdateReminder,
         .tasksModule,
         .plannerModule,
         .projectsModule,
@@ -126,13 +132,31 @@ nonisolated enum HomeWidgetSize: String, Codable, CaseIterable, Sendable {
 }
 
 nonisolated struct HomeWidgetConfiguration: Codable, Equatable, Sendable {
+    var widgetID: UUID?
+    var moduleID: String?
+    var selectedQuickActionIDs: [String]
+    var isVisible: Bool
+    var sortOrder: Int?
+    var size: HomeWidgetSize?
     var version: Int
     var values: [String: String]
 
     init(
+        widgetID: UUID? = nil,
+        moduleID: String? = nil,
+        selectedQuickActionIDs: [String] = [],
+        isVisible: Bool = true,
+        sortOrder: Int? = nil,
+        size: HomeWidgetSize? = nil,
         version: Int = 1,
         values: [String: String] = [:]
     ) {
+        self.widgetID = widgetID
+        self.moduleID = moduleID
+        self.selectedQuickActionIDs = Array(Set(selectedQuickActionIDs)).sorted()
+        self.isVisible = isVisible
+        self.sortOrder = sortOrder
+        self.size = size
         self.version = max(1, version)
         self.values = values
     }
@@ -140,7 +164,24 @@ nonisolated struct HomeWidgetConfiguration: Codable, Equatable, Sendable {
     static let empty = HomeWidgetConfiguration()
 
     var isEmpty: Bool {
-        values.isEmpty
+        widgetID == nil &&
+            moduleID == nil &&
+            selectedQuickActionIDs.isEmpty &&
+            isVisible == true &&
+            sortOrder == nil &&
+            size == nil &&
+            values.isEmpty
+    }
+
+    mutating func normalizeQuickActions(maxCount: Int = 2) {
+        var deduplicated: [String] = []
+        for actionID in selectedQuickActionIDs where deduplicated.contains(actionID) == false {
+            deduplicated.append(actionID)
+            if deduplicated.count == maxCount {
+                break
+            }
+        }
+        selectedQuickActionIDs = deduplicated
     }
 
     var projectID: UUID? {
@@ -167,6 +208,36 @@ nonisolated struct HomeWidgetConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct WidgetQuickAction: Identifiable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let role: ButtonRole?
+}
+
+nonisolated struct HomeWidgetDefinition: Identifiable, Equatable, Sendable {
+    var id: String { moduleID }
+
+    let moduleID: String
+    let title: String
+    let iconSystemName: String
+    let mainDestination: HomeWidgetDefaultAction
+    let defaultQuickActionIDs: [String]
+    let availableQuickActions: [WidgetQuickAction]
+
+    var sanitizedDefaultQuickActionIDs: [String] {
+        let availableIDs = Set(availableQuickActions.map(\.id))
+        var selected: [String] = []
+        for actionID in defaultQuickActionIDs where availableIDs.contains(actionID) && selected.contains(actionID) == false {
+            selected.append(actionID)
+            if selected.count == 2 {
+                break
+            }
+        }
+        return selected
+    }
+}
+
 nonisolated struct HomeWidgetInstance: Identifiable, Equatable, Sendable {
     let id: UUID
     var kind: HomeWidgetKind
@@ -190,7 +261,7 @@ nonisolated struct HomeWidgetInstance: Identifiable, Equatable, Sendable {
 }
 
 nonisolated struct HomeLayout: Equatable, Sendable {
-    static let currentVersion = 6
+    static let currentVersion = 7
 
     var version: Int
     var widgets: [HomeWidgetInstance]
@@ -209,18 +280,55 @@ nonisolated struct HomeLayout: Equatable, Sendable {
     static let defaultLayout = HomeLayout(
         widgets: [
             HomeWidgetInstance(kind: .inbox, size: .large, sortOrder: 0),
-            HomeWidgetInstance(kind: .pinnedProjects, size: .large, sortOrder: 1),
-            HomeWidgetInstance(kind: .calendarOverview, size: .large, sortOrder: 2),
-            HomeWidgetInstance(kind: .debriefsPending, size: .large, sortOrder: 3),
-            HomeWidgetInstance(kind: .promises, size: .large, sortOrder: 4),
-            HomeWidgetInstance(kind: .routines, size: .large, sortOrder: 5),
-            HomeWidgetInstance(kind: .promiseHistory, size: .large, sortOrder: 6),
-            HomeWidgetInstance(kind: .shoppingModule, size: .small, sortOrder: 7),
-            HomeWidgetInstance(kind: .healthModule, size: .small, sortOrder: 8),
-            HomeWidgetInstance(kind: .musicPracticeModule, size: .small, sortOrder: 9),
-            HomeWidgetInstance(kind: .fitnessModule, size: .small, sortOrder: 10),
-            HomeWidgetInstance(kind: .peopleMemoryModule, size: .small, sortOrder: 11),
-            HomeWidgetInstance(kind: .vicesModule, size: .small, sortOrder: 12),
+            HomeWidgetInstance(kind: .appUpdateReminder, size: .large, sortOrder: 1),
+            HomeWidgetInstance(kind: .pinnedProjects, size: .large, sortOrder: 2),
+            HomeWidgetInstance(kind: .calendarOverview, size: .large, sortOrder: 3),
+            HomeWidgetInstance(kind: .debriefsPending, size: .large, sortOrder: 4),
+            HomeWidgetInstance(kind: .promises, size: .large, sortOrder: 5),
+            HomeWidgetInstance(kind: .routines, size: .large, sortOrder: 6),
+            HomeWidgetInstance(kind: .promiseHistory, size: .large, sortOrder: 7),
+            HomeWidgetInstance(
+                kind: .shoppingModule,
+                size: .small,
+                sortOrder: 8,
+                configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.shopping.rawValue)
+            ),
+            HomeWidgetInstance(
+                kind: .healthModule,
+                size: .small,
+                sortOrder: 9,
+                configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.health.rawValue)
+            ),
+            HomeWidgetInstance(
+                kind: .musicPracticeModule,
+                size: .small,
+                sortOrder: 10,
+                configuration: HomeWidgetConfiguration(
+                    moduleID: HomeWidgetModule.musicPractice.rawValue,
+                    selectedQuickActionIDs: ["startPractice", "currentPiece"]
+                )
+            ),
+            HomeWidgetInstance(
+                kind: .fitnessModule,
+                size: .small,
+                sortOrder: 11,
+                configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.fitness.rawValue)
+            ),
+            HomeWidgetInstance(
+                kind: .peopleMemoryModule,
+                size: .small,
+                sortOrder: 12,
+                configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.peopleMemory.rawValue)
+            ),
+            HomeWidgetInstance(
+                kind: .vicesModule,
+                size: .small,
+                sortOrder: 13,
+                configuration: HomeWidgetConfiguration(
+                    moduleID: HomeWidgetModule.vices.rawValue,
+                    selectedQuickActionIDs: ["logHit", "activeSession"]
+                )
+            ),
         ]
     )
 
@@ -421,6 +529,22 @@ nonisolated enum HomeLayoutMigrator {
             }
         }
 
+        if version < 7 {
+            let hasAppReminder = migratedWidgets.contains { $0.kind == .appUpdateReminder }
+            let removedAppReminder = removedWidgets.contains { $0.kind == .appUpdateReminder }
+
+            if hasAppReminder == false, removedAppReminder == false {
+                migratedWidgets.insert(
+                    HomeWidgetInstance(
+                        kind: .appUpdateReminder,
+                        size: .large,
+                        sortOrder: min(1, migratedWidgets.count)
+                    ),
+                    at: min(1, migratedWidgets.count)
+                )
+            }
+        }
+
         return migratedWidgets.enumerated().map { index, widget in
             var updatedWidget = widget
             updatedWidget.sortOrder = index
@@ -483,6 +607,15 @@ nonisolated struct HomeWidgetDescriptor: Identifiable, Equatable, Sendable {
 
 nonisolated struct HomeWidgetRegistry: Equatable, Sendable {
     let descriptors: [HomeWidgetDescriptor]
+    let definitions: [HomeWidgetDefinition]
+
+    init(
+        descriptors: [HomeWidgetDescriptor],
+        definitions: [HomeWidgetDefinition] = []
+    ) {
+        self.descriptors = descriptors
+        self.definitions = definitions
+    }
 
     static let standard = HomeWidgetRegistry(
         descriptors: [
@@ -697,6 +830,14 @@ nonisolated struct HomeWidgetRegistry: Equatable, Sendable {
                 defaultAction: .quickAddShopping
             ),
             HomeWidgetDescriptor(
+                kind: .appUpdateReminder,
+                displayName: "App Refresh",
+                iconSystemName: "arrow.triangle.2.circlepath",
+                module: .app,
+                supportedSizes: [.large],
+                defaultSize: .large
+            ),
+            HomeWidgetDescriptor(
                 kind: .healthModule,
                 displayName: "Health",
                 iconSystemName: "heart.text.square",
@@ -757,12 +898,175 @@ nonisolated struct HomeWidgetRegistry: Equatable, Sendable {
                 isModuleWidget: true
             ),
         ]
+        ,
+        definitions: [
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.tasks.rawValue,
+                title: "Tasks",
+                iconSystemName: "checklist",
+                mainDestination: .openTasks,
+                defaultQuickActionIDs: ["addTask", "today"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "addTask", title: "Add Task", systemImage: "plus", role: nil),
+                    WidgetQuickAction(id: "today", title: "Today", systemImage: "calendar", role: nil),
+                    WidgetQuickAction(id: "capture", title: "Capture", systemImage: "tray.and.arrow.down", role: nil),
+                    WidgetQuickAction(id: "overdue", title: "Overdue", systemImage: "exclamationmark.triangle", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.planner.rawValue,
+                title: "Planner",
+                iconSystemName: "calendar",
+                mainDestination: .openPlanner,
+                defaultQuickActionIDs: ["openPlanner", "planToday"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "openPlanner", title: "Open Planner", systemImage: "calendar", role: nil),
+                    WidgetQuickAction(id: "planToday", title: "Plan Today", systemImage: "calendar.badge.plus", role: nil),
+                    WidgetQuickAction(id: "reviewSchedule", title: "Review", systemImage: "calendar.badge.clock", role: nil),
+                    WidgetQuickAction(id: "createScheduledBlock", title: "Block", systemImage: "rectangle.on.rectangle", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.projects.rawValue,
+                title: "Projects",
+                iconSystemName: "folder.fill",
+                mainDestination: .openProjects,
+                defaultQuickActionIDs: ["openProjects", "pinnedProjects"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "openProjects", title: "Open Projects", systemImage: "folder", role: nil),
+                    WidgetQuickAction(id: "pinnedProjects", title: "Pinned", systemImage: "pin", role: nil),
+                    WidgetQuickAction(id: "projectFocus", title: "Focus", systemImage: "target", role: nil),
+                    WidgetQuickAction(id: "projectInbox", title: "Next Up", systemImage: "checklist", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.promises.rawValue,
+                title: "Promises",
+                iconSystemName: "hand.raised.fill",
+                mainDestination: .newPromise,
+                defaultQuickActionIDs: ["newPromise", "checkInDue"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "newPromise", title: "New Promise", systemImage: "plus", role: nil),
+                    WidgetQuickAction(id: "checkInDue", title: "Check In", systemImage: "checkmark.circle", role: nil),
+                    WidgetQuickAction(id: "activePromises", title: "Active", systemImage: "hand.raised", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.routines.rawValue,
+                title: "Routines",
+                iconSystemName: "checklist.checked",
+                mainDestination: .newRoutine,
+                defaultQuickActionIDs: ["newRoutine", "currentStep"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "newRoutine", title: "New Routine", systemImage: "plus", role: nil),
+                    WidgetQuickAction(id: "todayRoutines", title: "Today", systemImage: "sun.max", role: nil),
+                    WidgetQuickAction(id: "currentStep", title: "Current Step", systemImage: "figure.walk.motion", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.shopping.rawValue,
+                title: "Shopping",
+                iconSystemName: "cart.fill",
+                mainDestination: .openShopping,
+                defaultQuickActionIDs: ["openShopping", "quickAddShopping"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "openShopping", title: "Open List", systemImage: "cart", role: nil),
+                    WidgetQuickAction(id: "quickAddShopping", title: "Add Item", systemImage: "cart.badge.plus", role: nil),
+                    WidgetQuickAction(id: "neededItems", title: "Needed", systemImage: "list.bullet", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.health.rawValue,
+                title: "Health",
+                iconSystemName: "heart.text.square",
+                mainDestination: .openHealth,
+                defaultQuickActionIDs: ["openHealth", "logMeal"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "openHealth", title: "Open Health", systemImage: "heart.text.square", role: nil),
+                    WidgetQuickAction(id: "logMeal", title: "Log Meal", systemImage: "fork.knife", role: nil),
+                    WidgetQuickAction(id: "logSleep", title: "Log Sleep", systemImage: "bed.double", role: nil),
+                    WidgetQuickAction(id: "healthHistory", title: "History", systemImage: "clock.arrow.circlepath", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.vices.rawValue,
+                title: "Vices",
+                iconSystemName: "flame.fill",
+                mainDestination: .openVices,
+                defaultQuickActionIDs: ["logHit", "activeSession"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "logHit", title: "Log Hit", systemImage: "plus", role: nil),
+                    WidgetQuickAction(id: "activeSession", title: "Active Session", systemImage: "timer", role: nil),
+                    WidgetQuickAction(id: "debrief", title: "Debrief", systemImage: "text.bubble", role: nil),
+                    WidgetQuickAction(id: "history", title: "History", systemImage: "clock.arrow.circlepath", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.musicPractice.rawValue,
+                title: "Music Practice",
+                iconSystemName: "music.note.list",
+                mainDestination: .openMusicPractice,
+                defaultQuickActionIDs: ["startPractice", "currentPiece"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "startPractice", title: "Start", systemImage: "play.fill", role: nil),
+                    WidgetQuickAction(id: "currentPiece", title: "Current Piece", systemImage: "music.note", role: nil),
+                    WidgetQuickAction(id: "addPracticeNote", title: "Note", systemImage: "note.text", role: nil),
+                    WidgetQuickAction(id: "regimen", title: "Regimen", systemImage: "list.bullet", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.fitness.rawValue,
+                title: "Fitness",
+                iconSystemName: "dumbbell.fill",
+                mainDestination: .openFitness,
+                defaultQuickActionIDs: ["openFitness", "logWorkout"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "openFitness", title: "Open Fitness", systemImage: "dumbbell", role: nil),
+                    WidgetQuickAction(id: "logWorkout", title: "Log Workout", systemImage: "plus.circle", role: nil),
+                    WidgetQuickAction(id: "recentWorkouts", title: "Recent", systemImage: "clock", role: nil),
+                    WidgetQuickAction(id: "workoutDays", title: "Workout Days", systemImage: "calendar", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.peopleMemory.rawValue,
+                title: "People",
+                iconSystemName: "person.2.fill",
+                mainDestination: .openPeopleMemory,
+                defaultQuickActionIDs: ["openPeopleMemory", "studyNow"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "openPeopleMemory", title: "Open People", systemImage: "person.2", role: nil),
+                    WidgetQuickAction(id: "addPerson", title: "Add Person", systemImage: "person.badge.plus", role: nil),
+                    WidgetQuickAction(id: "studyNow", title: "Study", systemImage: "brain.head.profile", role: nil),
+                    WidgetQuickAction(id: "reviewDue", title: "Due", systemImage: "clock.badge.exclamationmark", role: nil),
+                ]
+            ),
+            HomeWidgetDefinition(
+                moduleID: HomeWidgetModule.finance.rawValue,
+                title: "Finance",
+                iconSystemName: "creditcard.fill",
+                mainDestination: .openFinance,
+                defaultQuickActionIDs: ["addExpense", "budget"],
+                availableQuickActions: [
+                    WidgetQuickAction(id: "addExpense", title: "Add Expense", systemImage: "minus.circle", role: nil),
+                    WidgetQuickAction(id: "budget", title: "Budget", systemImage: "chart.bar", role: nil),
+                    WidgetQuickAction(id: "subscriptions", title: "Subscriptions", systemImage: "repeat", role: nil),
+                ]
+            )
+        ]
     )
 
     var modules: [HomeWidgetModule] {
         HomeWidgetModule.allCases.filter { module in
             descriptors.contains { $0.module == module }
         }
+    }
+
+    func definition(for moduleID: String) -> HomeWidgetDefinition? {
+        definitions.first { $0.moduleID == moduleID }
+    }
+
+    func definition(for module: HomeWidgetModule) -> HomeWidgetDefinition? {
+        definition(for: module.rawValue)
     }
 
     func descriptor(for kind: HomeWidgetKind) -> HomeWidgetDescriptor? {

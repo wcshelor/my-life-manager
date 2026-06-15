@@ -133,6 +133,31 @@ final class HealthViewModel: ObservableObject {
         }
     }
 
+    func searchFoodCatalogItems(_ query: String, limit: Int = 12) -> [FoodCatalogItem] {
+        do {
+            return try healthRepository.searchFoodCatalogItems(matching: query, limit: limit)
+        } catch {
+            errorMessage = "Unable to search foods: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    func saveFoodCatalogItem(_ item: FoodCatalogItem) {
+        do {
+            try healthRepository.saveFoodCatalogItem(item)
+        } catch {
+            errorMessage = "Unable to save food: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteFoodCatalogItem(withID id: UUID) {
+        do {
+            try healthRepository.deleteFoodCatalogItem(withID: id)
+        } catch {
+            errorMessage = "Unable to delete food: \(error.localizedDescription)"
+        }
+    }
+
     func saveMealLog(_ log: MealLog, replacingLogWithID originalID: UUID? = nil) {
         do {
             try healthRepository.saveMealLog(log, replacingLogWithID: originalID)

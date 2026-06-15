@@ -32,45 +32,189 @@ nonisolated enum HealthContextTag: String, CaseIterable, Codable, Sendable {
     }
 }
 
-nonisolated enum MealType: String, CaseIterable, Codable, Sendable {
-    case breakfast
-    case lunch
-    case dinner
-    case snack
-    case drink
-    case other
+nonisolated enum FoodCatalogSource: String, Codable, Sendable {
+    case builtIn
+    case custom
+}
 
-    var displayName: String {
-        rawValue.capitalized
+nonisolated struct NutritionFacts: Equatable, Codable, Sendable {
+    var calories: Double?
+    var proteinGrams: Double?
+    var carbGrams: Double?
+    var sugarGrams: Double?
+    var fiberGrams: Double?
+    var sodiumMilligrams: Double?
+
+    init(
+        calories: Double? = nil,
+        proteinGrams: Double? = nil,
+        carbGrams: Double? = nil,
+        sugarGrams: Double? = nil,
+        fiberGrams: Double? = nil,
+        sodiumMilligrams: Double? = nil
+    ) {
+        self.calories = Self.cleanedAmount(calories)
+        self.proteinGrams = Self.cleanedAmount(proteinGrams)
+        self.carbGrams = Self.cleanedAmount(carbGrams)
+        self.sugarGrams = Self.cleanedAmount(sugarGrams)
+        self.fiberGrams = Self.cleanedAmount(fiberGrams)
+        self.sodiumMilligrams = Self.cleanedAmount(sodiumMilligrams)
+    }
+
+    var hasAnyValue: Bool {
+        calories != nil
+            || proteinGrams != nil
+            || carbGrams != nil
+            || sugarGrams != nil
+            || fiberGrams != nil
+            || sodiumMilligrams != nil
+    }
+
+    func scaled(by multiplier: Double) -> NutritionFacts {
+        let cleanedMultiplier = max(0, multiplier)
+        return NutritionFacts(
+            calories: calories.map { $0 * cleanedMultiplier },
+            proteinGrams: proteinGrams.map { $0 * cleanedMultiplier },
+            carbGrams: carbGrams.map { $0 * cleanedMultiplier },
+            sugarGrams: sugarGrams.map { $0 * cleanedMultiplier },
+            fiberGrams: fiberGrams.map { $0 * cleanedMultiplier },
+            sodiumMilligrams: sodiumMilligrams.map { $0 * cleanedMultiplier }
+        )
+    }
+
+    func adding(_ other: NutritionFacts) -> NutritionFacts {
+        NutritionFacts(
+            calories: Self.sum(calories, other.calories),
+            proteinGrams: Self.sum(proteinGrams, other.proteinGrams),
+            carbGrams: Self.sum(carbGrams, other.carbGrams),
+            sugarGrams: Self.sum(sugarGrams, other.sugarGrams),
+            fiberGrams: Self.sum(fiberGrams, other.fiberGrams),
+            sodiumMilligrams: Self.sum(sodiumMilligrams, other.sodiumMilligrams)
+        )
+    }
+
+    static var empty: NutritionFacts {
+        NutritionFacts()
+    }
+
+    private static func cleanedAmount(_ amount: Double?) -> Double? {
+        guard let amount else {
+            return nil
+        }
+
+        return max(0, amount)
+    }
+
+    private static func sum(_ left: Double?, _ right: Double?) -> Double? {
+        switch (left, right) {
+        case let (left?, right?):
+            return left + right
+        case let (left?, nil):
+            return left
+        case let (nil, right?):
+            return right
+        case (nil, nil):
+            return nil
+        }
     }
 }
 
-nonisolated enum MealTag: String, CaseIterable, Codable, Sendable {
-    case homemade
-    case takeout
-    case heavy
-    case light
-    case protein
-    case lateNight
-    case skipped
+nonisolated struct FoodCatalogItem: Identifiable, Equatable, Codable, Sendable {
+    let id: UUID
+    var name: String
+    var servingDescription: String
+    var nutritionPerServing: NutritionFacts
+    var source: FoodCatalogSource
+    let createdAt: Date
+    var updatedAt: Date
 
-    var displayName: String {
-        switch self {
-        case .homemade:
-            return "Homemade"
-        case .takeout:
-            return "Takeout"
-        case .heavy:
-            return "Heavy"
-        case .light:
-            return "Light"
-        case .protein:
-            return "Protein"
-        case .lateNight:
-            return "Late Night"
-        case .skipped:
-            return "Skipped"
+    init(
+        id: UUID = UUID(),
+        name: String,
+        servingDescription: String = "1 serving",
+        nutritionPerServing: NutritionFacts = .empty,
+        source: FoodCatalogSource = .custom,
+        createdAt: Date = .now,
+        updatedAt: Date? = nil
+    ) {
+        self.id = id
+        self.name = Self.cleanedName(from: name) ?? name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.servingDescription = Self.cleanedServingDescription(from: servingDescription) ?? "1 serving"
+        self.nutritionPerServing = nutritionPerServing
+        self.source = source
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt ?? createdAt
+    }
+
+    static func cleanedName(from rawName: String) -> String? {
+        let cleanedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleanedName.isEmpty ? nil : cleanedName
+    }
+
+    static func cleanedServingDescription(from rawDescription: String) -> String? {
+        let cleanedDescription = rawDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleanedDescription.isEmpty ? nil : cleanedDescription
+    }
+
+    var normalizedSearchText: String {
+        [name, servingDescription]
+            .joined(separator: " ")
+            .normalizedFoodSearchText
+    }
+}
+
+nonisolated struct MealEntry: Identifiable, Equatable, Codable, Sendable {
+    let id: UUID
+    var foodCatalogItemID: UUID?
+    var foodName: String
+    var servingDescription: String
+    var servings: Double
+    var nutritionPerServing: NutritionFacts
+    var source: FoodCatalogSource?
+    var note: String?
+
+    init(
+        id: UUID = UUID(),
+        foodCatalogItemID: UUID? = nil,
+        foodName: String,
+        servingDescription: String = "1 serving",
+        servings: Double = 1,
+        nutritionPerServing: NutritionFacts = .empty,
+        source: FoodCatalogSource? = nil,
+        note: String? = nil
+    ) {
+        self.id = id
+        self.foodCatalogItemID = foodCatalogItemID
+        self.foodName = FoodCatalogItem.cleanedName(from: foodName) ?? foodName.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.servingDescription = FoodCatalogItem.cleanedServingDescription(from: servingDescription) ?? "1 serving"
+        self.servings = Self.cleanedServings(servings)
+        self.nutritionPerServing = nutritionPerServing
+        self.source = source
+        self.note = MyTask.cleanedOptionalText(from: note)
+    }
+
+    init(food: FoodCatalogItem, servings: Double = 1, note: String? = nil) {
+        self.init(
+            foodCatalogItemID: food.id,
+            foodName: food.name,
+            servingDescription: food.servingDescription,
+            servings: servings,
+            nutritionPerServing: food.nutritionPerServing,
+            source: food.source,
+            note: note
+        )
+    }
+
+    var totalNutrition: NutritionFacts {
+        nutritionPerServing.scaled(by: servings)
+    }
+
+    static func cleanedServings(_ servings: Double) -> Double {
+        guard servings.isFinite, servings > 0 else {
+            return 1
         }
+
+        return servings
     }
 }
 
@@ -145,10 +289,8 @@ nonisolated struct SleepCheckIn: Identifiable, Equatable, Sendable {
 nonisolated struct MealLog: Identifiable, Equatable, Sendable {
     let id: UUID
     var timestamp: Date
-    var mealType: MealType
     var summary: String
-    var tags: [MealTag]
-    var energyAfterRating: Int?
+    var entries: [MealEntry]
     var notes: String?
     let createdAt: Date
     var updatedAt: Date
@@ -156,43 +298,32 @@ nonisolated struct MealLog: Identifiable, Equatable, Sendable {
     init(
         id: UUID = UUID(),
         timestamp: Date = .now,
-        mealType: MealType = .other,
-        summary: String,
-        tags: [MealTag] = [],
-        energyAfterRating: Int? = nil,
+        summary: String = "",
+        entries: [MealEntry] = [],
         notes: String? = nil,
         createdAt: Date = .now,
         updatedAt: Date? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
-        self.mealType = mealType
-        self.summary = Self.cleanedSummary(from: summary) ?? summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.tags = Self.cleanedTags(tags)
-        self.energyAfterRating = SleepCheckIn.cleanedRating(energyAfterRating)
+        self.entries = entries
+        self.summary = Self.cleanedSummary(from: summary)
+            ?? Self.derivedSummary(from: entries)
+            ?? summary.trimmingCharacters(in: .whitespacesAndNewlines)
         self.notes = MyTask.cleanedOptionalText(from: notes)
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }
 
-    init?(
-        newSummary: String,
-        timestamp: Date = .now,
-        mealType: MealType = .other,
-        tags: [MealTag] = [],
-        energyAfterRating: Int? = nil,
-        notes: String? = nil
-    ) {
+    init?(newSummary: String, timestamp: Date = .now, notes: String? = nil) {
         guard let cleanedSummary = Self.cleanedSummary(from: newSummary) else {
             return nil
         }
 
         self.init(
             timestamp: timestamp,
-            mealType: mealType,
             summary: cleanedSummary,
-            tags: tags,
-            energyAfterRating: energyAfterRating,
+            entries: [],
             notes: notes,
             createdAt: timestamp
         )
@@ -203,9 +334,52 @@ nonisolated struct MealLog: Identifiable, Equatable, Sendable {
         return cleanedSummary.isEmpty ? nil : cleanedSummary
     }
 
-    static func cleanedTags(_ tags: [MealTag]) -> [MealTag] {
-        let tagSet = Set(tags)
-        return MealTag.allCases.filter { tagSet.contains($0) }
+    static func derivedSummary(from entries: [MealEntry]) -> String? {
+        let names = entries
+            .map(\.foodName)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isEmpty == false }
+
+        guard names.isEmpty == false else {
+            return nil
+        }
+
+        return names.joined(separator: ", ")
+    }
+
+    var totalNutrition: NutritionFacts? {
+        guard entries.isEmpty == false else {
+            return nil
+        }
+
+        let total = entries
+            .map(\.totalNutrition)
+            .reduce(NutritionFacts.empty) { $0.adding($1) }
+        return total.hasAnyValue ? total : nil
+    }
+
+    var totalCalories: Double? {
+        totalNutrition?.calories
+    }
+
+    var totalProteinGrams: Double? {
+        totalNutrition?.proteinGrams
+    }
+
+    var totalCarbGrams: Double? {
+        totalNutrition?.carbGrams
+    }
+
+    var totalSugarGrams: Double? {
+        totalNutrition?.sugarGrams
+    }
+
+    var totalFiberGrams: Double? {
+        totalNutrition?.fiberGrams
+    }
+
+    var debriefReminderAt: Date {
+        timestamp.addingTimeInterval(3 * 60 * 60)
     }
 }
 
@@ -405,17 +579,21 @@ nonisolated struct NutritionTrendSummary: Equatable, Sendable {
 
 nonisolated struct NutritionTrendWindow: Equatable, Sendable {
     let mealCount: Int
-    let mealTypeCounts: [MealType: Int]
-    let tagCounts: [MealTag: Int]
-    let averageEnergyAfterRating: Double?
+    let mealEntryCount: Int
+    let totalCalories: Double?
+    let totalProteinGrams: Double?
+    let totalCarbGrams: Double?
+    let totalSugarGrams: Double?
+    let totalFiberGrams: Double?
 
     init(mealLogs: [MealLog]) {
         mealCount = mealLogs.count
-        mealTypeCounts = Dictionary(grouping: mealLogs, by: \.mealType)
-            .mapValues(\.count)
-        tagCounts = Dictionary(grouping: mealLogs.flatMap(\.tags), by: { $0 })
-            .mapValues(\.count)
-        averageEnergyAfterRating = mealLogs.compactMap(\.energyAfterRating).average
+        mealEntryCount = mealLogs.reduce(0) { $0 + $1.entries.count }
+        totalCalories = mealLogs.compactMap(\.totalCalories).sum
+        totalProteinGrams = mealLogs.compactMap(\.totalProteinGrams).sum
+        totalCarbGrams = mealLogs.compactMap(\.totalCarbGrams).sum
+        totalSugarGrams = mealLogs.compactMap(\.totalSugarGrams).sum
+        totalFiberGrams = mealLogs.compactMap(\.totalFiberGrams).sum
     }
 }
 
@@ -520,6 +698,33 @@ private extension Array where Element == Int {
         }
 
         return Double(sortedValues[middleIndex])
+    }
+}
+
+private extension Array where Element == Double {
+    nonisolated var sum: Double? {
+        guard isEmpty == false else {
+            return nil
+        }
+
+        return reduce(0, +)
+    }
+}
+
+extension String {
+    nonisolated var normalizedFoodSearchText: String {
+        let lowered = lowercased()
+        let scalars = lowered.unicodeScalars.map { scalar -> Character in
+            if CharacterSet.alphanumerics.contains(scalar) {
+                return Character(scalar)
+            }
+
+            return " "
+        }
+
+        return String(scalars)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
     }
 }
 

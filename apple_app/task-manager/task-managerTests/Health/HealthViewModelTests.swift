@@ -7,7 +7,7 @@ struct HealthViewModelTests {
     @Test func healthViewModelLoadsDashboardState() {
         let now = Date(timeIntervalSince1970: 1_000)
         let checkIn = SleepCheckIn(day: now, energyRating: 4)
-        let meal = MealLog(timestamp: now, mealType: .breakfast, summary: "Oats")
+        let meal = MealLog(timestamp: now, summary: "Oats")
         let workout = WorkoutLog(timestamp: now, workoutType: .walk, durationMinutes: 30)
         let pvtSession = PVTSession(startedAt: now, reactionTimesMilliseconds: [250, 320, 510])
         let repository = FakeHealthRepository(
@@ -64,7 +64,11 @@ struct HealthViewModelTests {
         let previousWeek = calendar.date(byAdding: .day, value: -8, to: now)!
         let checkIn = SleepCheckIn(day: now, sleepDurationMinutes: 420, sleepQualityRating: 4, energyRating: 3, calendar: calendar)
         let previousCheckIn = SleepCheckIn(day: previousWeek, sleepDurationMinutes: 360, sleepQualityRating: 2, calendar: calendar)
-        let meal = MealLog(timestamp: now, mealType: .breakfast, summary: "Oats", tags: [.protein], energyAfterRating: 4)
+        let meal = MealLog(
+            timestamp: now,
+            summary: "Oats",
+            entries: [MealEntry(foodName: "Oats", nutritionPerServing: NutritionFacts(calories: 150))]
+        )
         let workout = WorkoutLog(timestamp: now, workoutType: .strength, durationMinutes: 45, intensityRating: 4, energyBeforeRating: 2, energyAfterRating: 4)
         let pvtSession = PVTSession(startedAt: now, reactionTimesMilliseconds: [240, 300, 520])
         let previousPVTSession = PVTSession(startedAt: previousWeek, reactionTimesMilliseconds: [400, 500, 600])
@@ -89,7 +93,7 @@ struct HealthViewModelTests {
         #expect(trends.sleepPVT.current7Days.averagePVTMedianMilliseconds == 300)
         #expect(trends.sleepPVT.previous7Days.averagePVTMedianMilliseconds == 500)
         #expect(trends.nutrition.current7Days.mealCount == 1)
-        #expect(trends.nutrition.current7Days.tagCounts[.protein] == 1)
+        #expect(trends.nutrition.current7Days.mealEntryCount == 1)
         #expect(trends.workouts.current7Days.totalDurationMinutes == 45)
         #expect(trends.workouts.current7Days.averageEnergyDelta == 2)
     }
@@ -102,6 +106,27 @@ struct HealthViewModelTests {
 
         #expect(viewModel.errorMessage?.contains("Unable to load Health") == true)
     }
+
+    @Test func healthViewModelSearchesAndSavesFoodCatalogItems() {
+        let repository = FakeHealthRepository(
+            foodCatalogItems: [
+                FoodCatalogItem(name: "Pork schnitzel", source: .builtIn),
+                FoodCatalogItem(name: "Fried potatoes", source: .builtIn)
+            ]
+        )
+        let viewModel = HealthViewModel(healthRepository: repository)
+        let customFood = FoodCatalogItem(
+            name: "Carrots + peas",
+            servingDescription: "1 bowl",
+            nutritionPerServing: NutritionFacts(calories: 110, proteinGrams: 5, carbGrams: 18, sugarGrams: 8, fiberGrams: 6)
+        )
+
+        viewModel.saveFoodCatalogItem(customFood)
+        let searchResults = viewModel.searchFoodCatalogItems("pea", limit: 10)
+
+        #expect(repository.foodCatalogItems.contains(where: { $0.id == customFood.id }))
+        #expect(searchResults.contains(where: { $0.id == customFood.id }))
+    }
 }
 
 private enum FakeHealthRepositoryError: Error {
@@ -111,6 +136,7 @@ private enum FakeHealthRepositoryError: Error {
 @MainActor
 private final class FakeHealthRepository: HealthRepository {
     var sleepCheckIns: [SleepCheckIn]
+    var foodCatalogItems: [FoodCatalogItem]
     var mealLogs: [MealLog]
     var workoutLogs: [WorkoutLog]
     var pvtSessions: [PVTSession]
@@ -118,12 +144,14 @@ private final class FakeHealthRepository: HealthRepository {
 
     init(
         sleepCheckIns: [SleepCheckIn] = [],
+        foodCatalogItems: [FoodCatalogItem] = [],
         mealLogs: [MealLog] = [],
         workoutLogs: [WorkoutLog] = [],
         pvtSessions: [PVTSession] = [],
         shouldThrow: Bool = false
     ) {
         self.sleepCheckIns = sleepCheckIns
+        self.foodCatalogItems = foodCatalogItems
         self.mealLogs = mealLogs
         self.workoutLogs = workoutLogs
         self.pvtSessions = pvtSessions
@@ -152,6 +180,34 @@ private final class FakeHealthRepository: HealthRepository {
         } else {
             sleepCheckIns.append(checkIn)
         }
+    }
+
+    func searchFoodCatalogItems(matching query: String, limit: Int) throws -> [FoodCatalogItem] {
+        try failIfNeeded()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = normalizedQuery.isEmpty
+            ? foodCatalogItems
+            : foodCatalogItems.filter { $0.name.lowercased().contains(normalizedQuery) }
+        return Array(filtered.prefix(max(0, limit)))
+    }
+
+    func fetchCustomFoodCatalogItems() throws -> [FoodCatalogItem] {
+        try failIfNeeded()
+        return foodCatalogItems
+    }
+
+    func saveFoodCatalogItem(_ item: FoodCatalogItem) throws {
+        try failIfNeeded()
+        if let index = foodCatalogItems.firstIndex(where: { $0.id == item.id }) {
+            foodCatalogItems[index] = item
+        } else {
+            foodCatalogItems.append(item)
+        }
+    }
+
+    func deleteFoodCatalogItem(withID id: UUID) throws {
+        try failIfNeeded()
+        foodCatalogItems.removeAll { $0.id == id }
     }
 
     func fetchMealLogs(on date: Date, calendar: Calendar) throws -> [MealLog] {

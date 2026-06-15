@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct MusicPracticeView: View {
@@ -309,7 +310,7 @@ private struct PracticePieceRow: View {
     }
 }
 
-private struct PracticeSessionFormView: View {
+struct PracticeSessionFormView: View {
     @Environment(\.dismiss) private var dismiss
 
     let initialSession: PracticeSession?
@@ -409,7 +410,7 @@ private struct PracticeSessionFormView: View {
     }
 }
 
-private struct PracticePieceFormView: View {
+struct PracticePieceFormView: View {
     @Environment(\.dismiss) private var dismiss
 
     let initialPiece: PracticePiece?

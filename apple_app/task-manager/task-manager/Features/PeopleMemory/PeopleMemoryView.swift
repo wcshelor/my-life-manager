@@ -1,8 +1,10 @@
+import Combine
 import SwiftUI
 
 struct PeopleMemoryView: View {
     @StateObject private var viewModel: PeopleMemoryViewModel
     @State private var sheetDestination: SheetDestination?
+    @State private var quickName = ""
     private let onChanged: () -> Void
 
     private enum SheetDestination: Identifiable {
@@ -34,14 +36,15 @@ struct PeopleMemoryView: View {
 
     var body: some View {
         List {
-            summarySection
+            quickEntrySection
+            overviewSection
 
             Section("People") {
                 if viewModel.filteredPeople.isEmpty {
                     ContentUnavailableView(
                         viewModel.searchText.isEmpty ? "No People Yet" : "No Matches",
                         systemImage: "person.2",
-                        description: Text("Save a name with a few cues to make it study-ready.")
+                        description: Text("Add a name, then tap a filter chip to jump to an overview.")
                     )
                 } else {
                     ForEach(viewModel.filteredPeople) { person in
@@ -114,11 +117,11 @@ struct PeopleMemoryView: View {
         }
     }
 
-    private var summarySection: some View {
+    private var quickEntrySection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Label("People Memory", systemImage: "person.2.fill")
+                    Label("Quick add", systemImage: "person.fill.badge.plus")
                         .font(.headline)
 
                     Spacer()
@@ -127,17 +130,70 @@ struct PeopleMemoryView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                HStack(spacing: 8) {
+                    TextField("Enter a name", text: $quickName)
+                        .textFieldStyle(.roundedBorder)
+                        .submitLabel(.done)
+                        .onSubmit(addQuickPerson)
+
+                    Button {
+                        addQuickPerson()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .labelStyle(.iconOnly)
+                            .font(.title3)
+                    }
+                    .disabled(PersonMemory.cleanedName(from: quickName) == nil)
+                }
+
                 Button {
                     viewModel.startStudy()
                     sheetDestination = .study
                 } label: {
-                    Label("Study 5 Names", systemImage: "rectangle.stack.fill")
+                    Label("Study due names", systemImage: "rectangle.stack.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .disabled(PeopleStudyQueue.cards(from: viewModel.people, tags: viewModel.tags, now: Date()).isEmpty)
             }
         }
+    }
+
+    private var overviewSection: some View {
+        Section("Overview") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(viewModel.overviewFilters, id: \.filter) { item in
+                        Button {
+                            viewModel.overviewFilter = item.filter
+                        } label: {
+                            Text("\(item.filter.title) \(item.count)")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(viewModel.overviewFilter == item.filter ? Color.white : Color.primary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    viewModel.overviewFilter == item.filter
+                                        ? Color.accentColor
+                                        : Color.secondary.opacity(0.12),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func addQuickPerson() {
+        guard viewModel.addPerson(named: quickName) else {
+            return
+        }
+
+        quickName = ""
+        onChanged()
     }
 }
 

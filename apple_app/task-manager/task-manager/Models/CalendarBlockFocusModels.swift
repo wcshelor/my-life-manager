@@ -319,7 +319,7 @@ nonisolated enum DebriefTaskOutcomeStatus: String, Codable, CaseIterable, Identi
     }
 }
 
-nonisolated struct DebriefTaskOutcome: Identifiable, Equatable, Sendable {
+nonisolated struct DebriefTaskOutcome: Identifiable, Equatable, Codable, Sendable {
     let id: UUID
     var debriefID: UUID
     var taskID: UUID

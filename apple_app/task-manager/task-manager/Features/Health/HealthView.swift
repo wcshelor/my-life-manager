@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct HealthView: View {
@@ -61,7 +62,7 @@ struct HealthView: View {
                         presentedSheet = nil
                     }
                 case .mealLog(let log):
-                    MealLogFormView(initialLog: log) { savedLog in
+                    MealLogFormView(initialLog: log, viewModel: viewModel) { savedLog in
                         viewModel.saveMealLog(savedLog, replacingLogWithID: log?.id)
                         onChange()
                         presentedSheet = nil
@@ -261,19 +262,9 @@ struct HealthView: View {
                             detail: "30-day: \(trends.nutrition.current30Days.mealCount)"
                         ),
                         TrendMetricRowData(
-                            label: "Meal mix",
-                            value: topCountText(trends.nutrition.current7Days.mealTypeCounts),
-                            detail: "7-day counts"
-                        ),
-                        TrendMetricRowData(
-                            label: "Common tags",
-                            value: topCountText(trends.nutrition.current30Days.tagCounts),
-                            detail: "30-day counts"
-                        ),
-                        TrendMetricRowData(
-                            label: "Energy after",
-                            value: formattedRatingAverage(trends.nutrition.current7Days.averageEnergyAfterRating),
-                            detail: "7-day average"
+                            label: "Meal entries",
+                            value: "\(trends.nutrition.current7Days.mealEntryCount)",
+                            detail: "30-day: \(trends.nutrition.current30Days.mealEntryCount)"
                         ),
                     ]
                 )
@@ -481,8 +472,6 @@ private protocol HealthDisplayNamed: Hashable {
     var displayName: String { get }
 }
 
-extension MealType: HealthDisplayNamed {}
-extension MealTag: HealthDisplayNamed {}
 extension WorkoutType: HealthDisplayNamed {}
 
 private struct HealthSummaryCard: View {
@@ -590,19 +579,10 @@ private struct MealLogRow: View {
             }
 
             HStack(spacing: 8) {
-                Label(log.mealType.displayName, systemImage: "fork.knife")
-                if let energy = log.energyAfterRating {
-                    Label("Energy \(energy)/5", systemImage: "bolt.fill")
-                }
+                Label(log.debriefReminderAt.formatted(date: .omitted, time: .shortened), systemImage: "bell.badge")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-
-            if log.tags.isEmpty == false {
-                Text(log.tags.map(\.displayName).joined(separator: " · "))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(.vertical, 4)
     }
@@ -849,89 +829,286 @@ private struct SleepCheckInFormView: View {
 
 private struct MealLogFormView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var activeFoodCreationDestination: FoodCreationDestination?
+    @State private var foodCatalogItems: [FoodCatalogItem]
     let onSave: (MealLog) -> Void
 
     @State private var timestamp: Date
-    @State private var mealType: MealType
     @State private var summary: String
-    @State private var selectedTags: Set<MealTag>
-    @State private var energyAfterRating: Int?
+    @State private var entryDrafts: [MealEntryDraft]
     @State private var notes: String
     private let initialLog: MealLog?
+    private let viewModel: HealthViewModel
 
-    init(initialLog: MealLog?, onSave: @escaping (MealLog) -> Void) {
+    init(initialLog: MealLog?, viewModel: HealthViewModel, onSave: @escaping (MealLog) -> Void) {
         self.initialLog = initialLog
+        self.viewModel = viewModel
         self.onSave = onSave
         _timestamp = State(initialValue: initialLog?.timestamp ?? Date())
-        _mealType = State(initialValue: initialLog?.mealType ?? .other)
         _summary = State(initialValue: initialLog?.summary ?? "")
-        _selectedTags = State(initialValue: Set(initialLog?.tags ?? []))
-        _energyAfterRating = State(initialValue: initialLog?.energyAfterRating)
+        _entryDrafts = State(initialValue: initialLog?.entries.map(MealEntryDraft.init) ?? [])
         _notes = State(initialValue: initialLog?.notes ?? "")
+        _foodCatalogItems = State(initialValue: viewModel.searchFoodCatalogItems("", limit: 25))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Meal") {
+                    DatePicker("Time", selection: $timestamp)
+                    TextField("Summary", text: $summary)
+                    Text("Debrief reminder due 3 hours after this meal.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Items") {
+                    ForEach($entryDrafts) { $draft in
+                        MealEntryDraftRow(
+                            draft: $draft,
+                            foodCatalogItems: foodCatalogItems,
+                            onSearchTextChanged: { query in
+                                foodCatalogItems = viewModel.searchFoodCatalogItems(query, limit: 25)
+                            },
+                            onCreateNewFood: {
+                                activeFoodCreationDestination = FoodCreationDestination(draftID: draft.id)
+                            }
+                        )
+                    }
+
+                    Button {
+                        entryDrafts.append(MealEntryDraft())
+                        if let draftID = entryDrafts.last?.id {
+                            activeFoodCreationDestination = FoodCreationDestination(draftID: draftID)
+                        }
+                    } label: {
+                        Label("Add Item", systemImage: "plus.circle.fill")
+                    }
+                }
+
+                Section("Notes") {
+                    TextField("Optional note", text: $notes, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+            }
+            .navigationDestination(item: $activeFoodCreationDestination) { destination in
+                let initialName = entryDrafts.first(where: { $0.id == destination.draftID })?.searchText ?? ""
+                FoodCatalogItemFormView(initialName: initialName) { item in
+                    if let index = entryDrafts.firstIndex(where: { $0.id == destination.draftID }) {
+                        entryDrafts[index].selectedFood = item
+                        entryDrafts[index].searchText = item.name
+                        entryDrafts[index].servingsText = "1"
+                        foodCatalogItems = viewModel.searchFoodCatalogItems("", limit: 25)
+                    }
+                }
+            }
+            .navigationTitle(initialLog == nil ? "Log Meal" : "Edit Meal")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(
+                            MealLog(
+                                id: initialLog?.id ?? UUID(),
+                                timestamp: timestamp,
+                                summary: summary,
+                                entries: entryDrafts.compactMap(\.mealEntry),
+                                notes: notes,
+                                createdAt: initialLog?.createdAt ?? timestamp,
+                                updatedAt: Date()
+                            )
+                        )
+                    }
+                    .disabled(MealLog.cleanedSummary(from: summary) == nil && entryDrafts.allSatisfy { $0.mealEntry == nil })
+                }
+            }
+        }
+    }
+}
+
+private struct FoodCreationDestination: Identifiable, Hashable {
+    let draftID: UUID
+
+    var id: UUID { draftID }
+}
+
+private struct MealEntryDraft: Identifiable {
+    let id: UUID = UUID()
+    var searchText: String = ""
+    var selectedFood: FoodCatalogItem?
+    var servingsText: String = "1"
+    var note: String = ""
+
+    init() {}
+
+    init(entry: MealEntry) {
+        searchText = entry.foodName
+        selectedFood = FoodCatalogItem(
+            id: entry.foodCatalogItemID ?? UUID(),
+            name: entry.foodName,
+            servingDescription: entry.servingDescription,
+            nutritionPerServing: entry.nutritionPerServing,
+            source: entry.source ?? .custom
+        )
+        servingsText = String(entry.servings)
+        note = entry.note ?? ""
+    }
+
+    var mealEntry: MealEntry? {
+        guard let selectedFood else {
+            return nil
+        }
+
+        return MealEntry(food: selectedFood, servings: Double(servingsText) ?? 1, note: note)
+    }
+}
+
+private struct MealEntryDraftRow: View {
+    @Binding var draft: MealEntryDraft
+    let foodCatalogItems: [FoodCatalogItem]
+    let onSearchTextChanged: (String) -> Void
+    let onCreateNewFood: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Food name", text: $draft.searchText)
+                .onChange(of: draft.searchText) { _, newValue in
+                    onSearchTextChanged(newValue)
+                }
+
+            if let selectedFood = draft.selectedFood {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(selectedFood.name)
+                                .font(.subheadline.weight(.semibold))
+                            Text(selectedFood.servingDescription)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Clear") {
+                            draft.selectedFood = nil
+                        }
+                        .font(.caption)
+                    }
+
+                    HStack {
+                        TextField("Servings", text: $draft.servingsText)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            #endif
+                        TextField("Notes", text: $draft.note)
+                    }
+                }
+            } else {
+                let matches = foodCatalogItems
+                    .filter { $0.normalizedSearchText.contains(draft.searchText.normalizedFoodSearchText) }
+                    .prefix(5)
+
+                ForEach(Array(matches)) { item in
+                    Button {
+                        draft.selectedFood = item
+                        draft.searchText = item.name
+                        draft.servingsText = "1"
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.name)
+                            Text(item.servingDescription)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button("Create New Food") {
+                    onCreateNewFood()
+                }
+                .font(.caption)
+            }
+        }
+    }
+}
+
+private struct FoodCatalogItemFormView: View {
+    @Environment(\.dismiss) private var dismiss
+    let onSave: (FoodCatalogItem) -> Void
+    @State private var name: String
+    @State private var servingDescription: String
+    @State private var calories: String
+    @State private var protein: String
+    @State private var carbs: String
+    @State private var sugar: String
+    @State private var fiber: String
+    @State private var sodium: String
+
+    init(initialName: String, onSave: @escaping (FoodCatalogItem) -> Void) {
+        self.onSave = onSave
+        _name = State(initialValue: initialName)
+        _servingDescription = State(initialValue: "1 serving")
+        _calories = State(initialValue: "")
+        _protein = State(initialValue: "")
+        _carbs = State(initialValue: "")
+        _sugar = State(initialValue: "")
+        _fiber = State(initialValue: "")
+        _sodium = State(initialValue: "")
     }
 
     var body: some View {
         Form {
-            Section("Meal") {
-                DatePicker("Time", selection: $timestamp)
-                Picker("Type", selection: $mealType) {
-                    ForEach(MealType.allCases, id: \.self) { type in
-                        Text(type.displayName).tag(type)
-                    }
-                }
-                TextField("Summary", text: $summary)
-                RatingPicker(title: "Energy After", rating: $energyAfterRating)
+            Section("Food") {
+                TextField("Name", text: $name)
+                TextField("Serving description", text: $servingDescription)
             }
 
-            Section("Tags") {
-                ForEach(MealTag.allCases, id: \.self) { tag in
-                    Toggle(tag.displayName, isOn: binding(for: tag))
-                }
-            }
-
-            Section("Notes") {
-                TextField("Optional note", text: $notes, axis: .vertical)
-                    .lineLimit(2...4)
+            Section("Nutrition per serving") {
+                numericField("Calories", text: $calories)
+                numericField("Protein grams", text: $protein)
+                numericField("Carb grams", text: $carbs)
+                numericField("Sugar grams", text: $sugar)
+                numericField("Fiber grams", text: $fiber)
+                numericField("Sodium mg", text: $sodium)
             }
         }
-        .navigationTitle(initialLog == nil ? "Log Meal" : "Edit Meal")
+        .navigationTitle("New Food")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
+                Button("Cancel") { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     onSave(
-                        MealLog(
-                            id: initialLog?.id ?? UUID(),
-                            timestamp: timestamp,
-                            mealType: mealType,
-                            summary: summary,
-                            tags: Array(selectedTags),
-                            energyAfterRating: energyAfterRating,
-                            notes: notes,
-                            createdAt: initialLog?.createdAt ?? timestamp,
-                            updatedAt: Date()
+                        FoodCatalogItem(
+                            name: name,
+                            servingDescription: servingDescription,
+                            nutritionPerServing: NutritionFacts(
+                                calories: Double(calories),
+                                proteinGrams: Double(protein),
+                                carbGrams: Double(carbs),
+                                sugarGrams: Double(sugar),
+                                fiberGrams: Double(fiber),
+                                sodiumMilligrams: Double(sodium)
+                            ),
+                            source: .custom
                         )
                     )
+                    dismiss()
                 }
-                .disabled(MealLog.cleanedSummary(from: summary) == nil)
+                .disabled(FoodCatalogItem.cleanedName(from: name) == nil)
             }
         }
     }
 
-    private func binding(for tag: MealTag) -> Binding<Bool> {
-        Binding {
-            selectedTags.contains(tag)
-        } set: { isSelected in
-            if isSelected {
-                selectedTags.insert(tag)
-            } else {
-                selectedTags.remove(tag)
-            }
-        }
+    private func numericField(_ title: String, text: Binding<String>) -> some View {
+        TextField(title, text: text)
+            #if os(iOS)
+            .keyboardType(.decimalPad)
+            #endif
     }
 }
 

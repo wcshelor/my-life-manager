@@ -50,6 +50,7 @@ private struct TaskManagerTabShell: View {
                 fitnessRepository: appEnvironment.fitnessRepository,
                 peopleMemoryRepository: appEnvironment.peopleMemoryRepository,
                 viceRepository: appEnvironment.viceRepository,
+                calendarBlockFocusRepository: appEnvironment.calendarBlockFocusRepository,
                 debriefRepository: appEnvironment.debriefRepository,
                 financeRepository: appEnvironment.financeRepository
             )

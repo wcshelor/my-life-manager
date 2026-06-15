@@ -26,6 +26,7 @@ enum ModelContainerFactory {
             ShoppingItemRecord.self,
             SleepCheckInRecord.self,
             MealLogRecord.self,
+            FoodCatalogItemRecord.self,
             WorkoutLogRecord.self,
             PVTSessionRecord.self,
             PracticePieceRecord.self,
@@ -41,6 +42,7 @@ enum ModelContainerFactory {
             FinanceTransactionRecord.self,
             ViceRecord.self,
             ViceLogRecord.self,
+            ViceSessionRecord.self,
         ])
         let configuration = ModelConfiguration(
             isStoredInMemoryOnly: isStoredInMemoryOnly

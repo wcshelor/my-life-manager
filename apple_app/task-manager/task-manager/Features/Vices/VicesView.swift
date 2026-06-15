@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct VicesView: View {
@@ -12,11 +13,15 @@ struct VicesView: View {
 
     init(
         viceRepository: any ViceRepository,
+        debriefRepository: any DebriefRepository,
         onChange: @escaping () -> Void = {}
     ) {
         self.onChange = onChange
         _viewModel = StateObject(
-            wrappedValue: VicesViewModel(viceRepository: viceRepository)
+            wrappedValue: VicesViewModel(
+                viceRepository: viceRepository,
+                debriefRepository: debriefRepository
+            )
         )
     }
 
@@ -30,32 +35,36 @@ struct VicesView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                if viewModel.activeVices.isEmpty {
-                    ContentUnavailableView(
-                        "No Vices Yet",
-                        systemImage: "flame",
-                        description: Text("Add a vice to start logging each occurrence with one tap.")
-                    )
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(viewModel.summaries) { summary in
-                                ViceCard(
-                                    summary: summary,
-                                    onTap: {
-                                        viewModel.logViceHit(viceID: summary.vice.id)
-                                        onChange()
-                                    },
-                                    onEdit: {
-                                        editingVice = summary.vice
-                                        draftName = summary.vice.name
-                                        draftUnitLabel = summary.vice.unitLabel
-                                    },
-                                    onArchive: {
-                                        viewModel.archiveVice(withID: summary.vice.id)
-                                        onChange()
-                                    }
-                                )
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    let now = timeline.date
+                    if viewModel.activeVices.isEmpty {
+                        ContentUnavailableView(
+                            "No Vices Yet",
+                            systemImage: "flame",
+                            description: Text("Add a vice to start logging each occurrence with one tap.")
+                        )
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 12) {
+                                ForEach(viewModel.summaries) { summary in
+                                    ViceCard(
+                                        summary: summary,
+                                        now: now,
+                                        onTap: {
+                                            viewModel.logViceHit(viceID: summary.vice.id)
+                                            onChange()
+                                        },
+                                        onEdit: {
+                                            editingVice = summary.vice
+                                            draftName = summary.vice.name
+                                            draftUnitLabel = summary.vice.unitLabel
+                                        },
+                                        onArchive: {
+                                            viewModel.archiveVice(withID: summary.vice.id)
+                                            onChange()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -162,6 +171,7 @@ struct VicesView: View {
 
 private struct ViceCard: View {
     let summary: ViceCardSummary
+    let now: Date
     let onTap: () -> Void
     let onEdit: () -> Void
     let onArchive: () -> Void
@@ -193,6 +203,12 @@ private struct ViceCard: View {
                 Text(lastLogLabel)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                if let recentGapSummary = summary.recentHistorySummaryText() {
+                    Text("Recent gaps: \(recentGapSummary)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
@@ -202,10 +218,10 @@ private struct ViceCard: View {
     }
 
     private var lastLogLabel: String {
-        guard let lastLogAt = summary.lastLogAt else {
+        guard let timeSinceLastLog = summary.timeSinceLastLogText(now: now) else {
             return "No logs yet"
         }
 
-        return "Last log \(lastLogAt.formatted(date: .abbreviated, time: .shortened))"
+        return "Last hit \(timeSinceLastLog) ago"
     }
 }

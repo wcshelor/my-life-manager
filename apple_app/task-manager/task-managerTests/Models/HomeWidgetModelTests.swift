@@ -8,6 +8,7 @@ struct HomeWidgetModelTests {
 
         #expect(kinds == [
             .inbox,
+            .appUpdateReminder,
             .pinnedProjects,
             .calendarOverview,
             .debriefsPending,
@@ -186,6 +187,16 @@ struct HomeWidgetModelTests {
         #expect(registry.moduleWidget(for: .finance)?.kind == .budgetModule)
     }
 
+    @Test func appRefreshWidgetIsAvailable() {
+        let registry = HomeWidgetRegistry.standard
+        let descriptor = registry.descriptor(for: .appUpdateReminder)
+
+        #expect(descriptor?.module == .app)
+        #expect(descriptor?.displayName == "App Refresh")
+        #expect(descriptor?.defaultSize == .large)
+        #expect(descriptor?.isAvailable == true)
+    }
+
     @Test func vicesModuleWidgetIsAvailable() {
         let registry = HomeWidgetRegistry.standard
         let descriptor = registry.descriptor(for: .vicesModule)
@@ -279,6 +290,27 @@ struct HomeWidgetModelTests {
 
         #expect(legacyLayout.normalized().widgets.map(\.kind).contains(.vicesModule))
         #expect(removedLegacyLayout.normalized().widgets.map(\.kind).contains(.vicesModule) == false)
+    }
+
+    @Test func homeLayoutMigrationInjectsAppReminderUnlessExplicitlyRemoved() {
+        let legacyLayout = HomeLayout(
+            version: 6,
+            widgets: [
+                HomeWidgetInstance(kind: .inbox, size: .large, sortOrder: 0),
+            ]
+        )
+        let removedLegacyLayout = HomeLayout(
+            version: 6,
+            widgets: [
+                HomeWidgetInstance(kind: .inbox, size: .large, sortOrder: 0),
+            ],
+            removedWidgets: [
+                HomeWidgetInstance(kind: .appUpdateReminder, size: .large, sortOrder: 0),
+            ]
+        )
+
+        #expect(legacyLayout.normalized().widgets.map(\.kind).contains(.appUpdateReminder))
+        #expect(removedLegacyLayout.normalized().widgets.map(\.kind).contains(.appUpdateReminder) == false)
     }
 
     @Test func shoppingQuickAddWidgetIsAvailableAndAllowsMultipleInstances() {

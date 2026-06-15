@@ -87,6 +87,31 @@ final class SwiftDataViceRepository: ViceRepository {
         try modelContext.save()
     }
 
+    func fetchViceSessions() throws -> [ViceSession] {
+        try modelContext.fetch(FetchDescriptor<ViceSessionRecord>())
+            .map(\.session)
+            .sortedForViceSessions()
+    }
+
+    func saveViceSession(_ session: ViceSession) throws {
+        if let existingRecord = try fetchViceSessionRecord(withID: session.id) {
+            existingRecord.update(from: session)
+        } else {
+            modelContext.insert(ViceSessionRecord(session: session))
+        }
+
+        try modelContext.save()
+    }
+
+    func deleteViceSession(withID id: UUID) throws {
+        guard let record = try fetchViceSessionRecord(withID: id) else {
+            return
+        }
+
+        modelContext.delete(record)
+        try modelContext.save()
+    }
+
     private func fetchViceRecord(withID id: UUID) throws -> ViceRecord? {
         try modelContext.fetch(FetchDescriptor<ViceRecord>())
             .first { $0.id == id }
@@ -94,6 +119,11 @@ final class SwiftDataViceRepository: ViceRepository {
 
     private func fetchViceLogRecord(withID id: UUID) throws -> ViceLogRecord? {
         try modelContext.fetch(FetchDescriptor<ViceLogRecord>())
+            .first { $0.id == id }
+    }
+
+    private func fetchViceSessionRecord(withID id: UUID) throws -> ViceSessionRecord? {
+        try modelContext.fetch(FetchDescriptor<ViceSessionRecord>())
             .first { $0.id == id }
     }
 }

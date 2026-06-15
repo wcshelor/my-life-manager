@@ -1,6 +1,6 @@
 import Foundation
 
-struct MyTaskFormData {
+nonisolated struct MyTaskFormData: Equatable, Sendable {
     var idText: String
     var title: String
     var notesText: String
@@ -186,6 +186,14 @@ struct MyTaskFormData {
             updatedAt: savedAt,
             completedAt: status == .done ? (completedAt ?? savedAt) : nil
         )
+    }
+
+    func normalizedDueDate(keepingExactTime: Bool, calendar: Calendar = .current) -> Date? {
+        guard hasDueDate else {
+            return nil
+        }
+
+        return keepingExactTime ? dueDate : calendar.startOfDay(for: dueDate)
     }
 
     mutating func generateNewID() {

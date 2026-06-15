@@ -4,6 +4,107 @@ import Testing
 
 @MainActor
 struct HomeExecutionViewModelTests {
+    private final class MemoryAppUpdateReminderStore: AppUpdateReminderStore {
+        private(set) var record: AppUpdateReminderRecord?
+
+        func loadRecord() -> AppUpdateReminderRecord? {
+            record
+        }
+
+        func saveRecord(_ record: AppUpdateReminderRecord) {
+            self.record = record
+        }
+    }
+
+    private struct StubAppBuildMetadataProvider: AppBuildMetadataProviding {
+        let appVersion: String
+        let buildNumber: String
+    }
+
+    private final class RecordingAppUpdateReminderTracker: AppUpdateReminderTracking {
+        private(set) var refreshCallCount = 0
+        var summary: HomeAppUpdateReminderSummary?
+
+        init(summary: HomeAppUpdateReminderSummary? = nil) {
+            self.summary = summary
+        }
+
+        func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
+            refreshCallCount += 1
+            return summary
+        }
+    }
+
+    @Test func todayViewModelLoadsAppRefreshReminderSummary() {
+        let now = Date(timeIntervalSince1970: 1_710_201_600)
+        let calendar = Calendar(identifier: .gregorian)
+        let summary = HomeAppUpdateReminderSummary(
+            appVersion: "1.0.0",
+            buildNumber: "42",
+            lastUpdatedAt: now.addingTimeInterval(-3 * 86_400),
+            now: now,
+            calendar: calendar
+        )
+        let tracker = RecordingAppUpdateReminderTracker(summary: summary)
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: FakeRoutineRepository(),
+            appUpdateReminderTracker: tracker,
+            calendar: calendar,
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+
+        #expect(viewModel.appUpdateReminderSummary == summary)
+        #expect(tracker.refreshCallCount == 1)
+    }
+
+    @Test func appRefreshReminderSummaryCalculatesCountdown() {
+        let calendar = Calendar(identifier: .gregorian)
+        let lastUpdatedAt = Date(timeIntervalSince1970: 1_710_000_000)
+        let now = calendar.date(byAdding: .day, value: 5, to: lastUpdatedAt)!
+        let summary = HomeAppUpdateReminderSummary(
+            appVersion: "1.0.0",
+            buildNumber: "42",
+            lastUpdatedAt: lastUpdatedAt,
+            now: now,
+            calendar: calendar
+        )
+
+        #expect(summary.daysSinceUpdate == 5)
+        #expect(summary.daysUntilSuggestedRefresh == 2)
+        #expect(summary.countdownLabel == "2d left")
+        #expect(summary.detail.contains("build 42"))
+    }
+
+    @Test func appRefreshReminderTrackerRecordsNewBuilds() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Date(timeIntervalSince1970: 1_710_000_000)
+        let store = MemoryAppUpdateReminderStore()
+        let tracker = LiveAppUpdateReminderTracker(
+            store: store,
+            metadataProvider: StubAppBuildMetadataProvider(appVersion: "1.0.0", buildNumber: "42")
+        )
+
+        let firstSummary = tracker.refresh(now: now, calendar: calendar)
+
+        #expect(firstSummary?.buildNumber == "42")
+        #expect(store.record?.lastUpdatedAt == now)
+
+        let later = now.addingTimeInterval(2 * 86_400)
+        let updatedTracker = LiveAppUpdateReminderTracker(
+            store: store,
+            metadataProvider: StubAppBuildMetadataProvider(appVersion: "1.0.0", buildNumber: "43")
+        )
+        let updatedSummary = updatedTracker.refresh(now: later, calendar: calendar)
+
+        #expect(updatedSummary?.buildNumber == "43")
+        #expect(store.record?.buildNumber == "43")
+        #expect(store.record?.lastUpdatedAt == later)
+    }
+
     @Test func todayViewModelAggregatesActivePromisesAndRoutines() {
         let now = Date(timeIntervalSince1970: 1_710_201_600)
         let promise = Promise(
@@ -125,6 +226,26 @@ struct HomeExecutionViewModelTests {
         viewModel.setRoutineItem(routineID: routine.id, itemID: item.id, state: .completed)
 
         #expect(viewModel.routineProgress.first?.completedCount == 1)
+    }
+
+    @Test func todayViewModelUpdatesRoutineItemSkippedState() {
+        let now = Date(timeIntervalSince1970: 1_710_201_600)
+        let item = RoutineItem(title: "Plan day", position: 0)
+        let routine = Routine(name: "Morning", items: [item])
+        let routineRepository = FakeRoutineRepository(routines: [routine])
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: routineRepository,
+            calendar: Calendar(identifier: .gregorian),
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        viewModel.setRoutineItem(routineID: routine.id, itemID: item.id, state: .skipped)
+
+        #expect(viewModel.routineProgress.first?.skippedCount == 1)
+        #expect(viewModel.progress(for: routine.id)?.isComplete == true)
     }
 
     @Test func todayViewModelSavesQuickAddedTask() {
@@ -279,6 +400,60 @@ struct HomeExecutionViewModelTests {
         #expect(viewModel.captures.isEmpty)
     }
 
+    @Test func inboxReviewViewModelConvertsCaptureToPracticePiece() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let captureRepository = FakeCaptureRepository(captures: [
+            CaptureItem(title: "Prelude in C", notes: "Hands separate")
+        ])
+        let musicRepository = FakeMusicPracticeRepository()
+        let viewModel = InboxReviewViewModel(
+            taskRepository: FakeTaskRepository(),
+            projectRepository: FakeProjectRepository(),
+            captureRepository: captureRepository,
+            projectItemRepository: FakeProjectItemRepository(),
+            shoppingRepository: FakeShoppingRepository(),
+            musicPracticeRepository: musicRepository,
+            initialCaptures: [],
+            initialProjects: [],
+            nowProvider: { now }
+        )
+
+        viewModel.load()
+        let conversionSucceeded = viewModel.convertCurrentCaptureToPracticePiece(
+            PracticePiece(title: "Prelude in C", notes: "Hands separate")
+        )
+
+        #expect(conversionSucceeded == true)
+        #expect(musicRepository.pieces.count == 1)
+        #expect(musicRepository.pieces.first?.title == "Prelude in C")
+        #expect(musicRepository.pieces.first?.notes == "Hands separate")
+        #expect(captureRepository.captures.first?.processedAt == now)
+    }
+
+    @Test func inboxReviewViewModelTempSkipMovesCurrentCaptureToBackOfDeck() {
+        let captureRepository = FakeCaptureRepository(captures: [
+            CaptureItem(title: "First"),
+            CaptureItem(title: "Second"),
+            CaptureItem(title: "Third")
+        ])
+        let viewModel = InboxReviewViewModel(
+            taskRepository: FakeTaskRepository(),
+            projectRepository: FakeProjectRepository(),
+            captureRepository: captureRepository,
+            projectItemRepository: FakeProjectItemRepository(),
+            shoppingRepository: FakeShoppingRepository(),
+            initialCaptures: [],
+            initialProjects: []
+        )
+
+        viewModel.load()
+        let skipped = viewModel.tempSkipCurrentCapture()
+
+        #expect(skipped == true)
+        #expect(viewModel.captures.map(\.title) == ["Second", "Third", "First"])
+        #expect(viewModel.currentCapture?.title == "Second")
+    }
+
     @Test func inboxReviewShoppingConversionFailureKeepsCapturePending() {
         let now = Date(timeIntervalSince1970: 10_000)
         let capture = CaptureItem(title: "Milk")
@@ -398,6 +573,78 @@ struct HomeExecutionViewModelTests {
 
         #expect(viewModel.progress(for: routine.id)?.isComplete == true)
         #expect(viewModel.progress(for: routine.id)?.actionLabel == "Review")
+    }
+
+    @Test func todayViewModelUndoRevertsLastCompletedRoutineStep() {
+        let now = Date(timeIntervalSince1970: 1_710_201_600)
+        let firstItem = RoutineItem(title: "Open curtains", position: 0)
+        let secondItem = RoutineItem(title: "Drink water", position: 1)
+        let routine = Routine(name: "Morning", items: [firstItem, secondItem])
+        let routineRepository = FakeRoutineRepository(routines: [routine])
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: routineRepository,
+            calendar: Calendar(identifier: .gregorian),
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        viewModel.completeCurrentRoutineItem(routineID: routine.id)
+        viewModel.undoLastRoutineAction(routineID: routine.id)
+
+        #expect(viewModel.progress(for: routine.id)?.currentItem == firstItem)
+        #expect(viewModel.progress(for: routine.id)?.completedCount == 0)
+        #expect(viewModel.progress(for: routine.id)?.skippedCount == 0)
+        #expect(viewModel.progress(for: routine.id)?.isComplete == false)
+    }
+
+    @Test func todayViewModelUndoRevertsLastSkippedRoutineStep() {
+        let now = Date(timeIntervalSince1970: 1_710_201_600)
+        let firstItem = RoutineItem(title: "Open curtains", position: 0)
+        let secondItem = RoutineItem(title: "Drink water", position: 1)
+        let routine = Routine(name: "Morning", items: [firstItem, secondItem])
+        let routineRepository = FakeRoutineRepository(routines: [routine])
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: routineRepository,
+            calendar: Calendar(identifier: .gregorian),
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        viewModel.setRoutineItem(routineID: routine.id, itemID: firstItem.id, state: .skipped)
+
+        #expect(viewModel.progress(for: routine.id)?.currentItem == secondItem)
+
+        viewModel.undoLastRoutineAction(routineID: routine.id)
+
+        #expect(viewModel.progress(for: routine.id)?.currentItem == firstItem)
+        #expect(viewModel.progress(for: routine.id)?.completedCount == 0)
+        #expect(viewModel.progress(for: routine.id)?.skippedCount == 0)
+        #expect(viewModel.progress(for: routine.id)?.isComplete == false)
+    }
+
+    @Test func todayViewModelUndoRoutineActionDoesNothingWithoutTodayProgress() {
+        let now = Date(timeIntervalSince1970: 1_710_201_600)
+        let item = RoutineItem(title: "Open curtains", position: 0)
+        let routine = Routine(name: "Morning", items: [item])
+        let routineRepository = FakeRoutineRepository(routines: [routine])
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: routineRepository,
+            calendar: Calendar(identifier: .gregorian),
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        viewModel.undoLastRoutineAction(routineID: routine.id)
+
+        #expect(viewModel.progress(for: routine.id)?.currentItem == item)
+        #expect(viewModel.progress(for: routine.id)?.completedCount == 0)
+        #expect(viewModel.progress(for: routine.id)?.skippedCount == 0)
     }
 
     @Test func todayViewModelDoesNotCarryYesterdayRoutineProgressIntoToday() {
@@ -759,6 +1006,39 @@ private final class FakeShoppingRepository: ShoppingRepository {
 }
 
 @MainActor
+private final class FakeMusicPracticeRepository: MusicPracticeRepository {
+    private(set) var pieces: [PracticePiece] = []
+
+    func fetchPracticePieces(includeArchived: Bool) throws -> [PracticePiece] {
+        includeArchived ? pieces : pieces.filter { $0.isArchived == false }
+    }
+
+    func practicePiece(withID id: UUID) throws -> PracticePiece? {
+        pieces.first { $0.id == id }
+    }
+
+    func savePracticePiece(_ piece: PracticePiece, replacingPieceWithID originalID: UUID?) throws {
+        if let originalID, let index = pieces.firstIndex(where: { $0.id == originalID }) {
+            pieces[index] = piece
+        } else if let index = pieces.firstIndex(where: { $0.id == piece.id }) {
+            pieces[index] = piece
+        } else {
+            pieces.append(piece)
+        }
+    }
+
+    func fetchPracticeSessions(limit: Int) throws -> [PracticeSession] { [] }
+
+    func fetchPracticeSessions(from startDate: Date, to endDate: Date) throws -> [PracticeSession] { [] }
+
+    func practiceSession(withID id: UUID) throws -> PracticeSession? { nil }
+
+    func savePracticeSession(_ session: PracticeSession, replacingSessionWithID originalID: UUID?) throws {}
+
+    func deletePracticeSession(withID id: UUID) throws {}
+}
+
+@MainActor
 private final class FakePromiseRepository: PromiseRepository {
     var promises: [Promise]
 
@@ -881,15 +1161,18 @@ private final class FakeRoutineRepository: RoutineRepository {
 @MainActor
 private final class FakeHomeHealthRepository: HealthRepository {
     var sleepCheckIns: [SleepCheckIn]
+    var foodCatalogItems: [FoodCatalogItem]
     var mealLogs: [MealLog]
     var workoutLogs: [WorkoutLog]
 
     init(
         sleepCheckIns: [SleepCheckIn] = [],
+        foodCatalogItems: [FoodCatalogItem] = [],
         mealLogs: [MealLog] = [],
         workoutLogs: [WorkoutLog] = []
     ) {
         self.sleepCheckIns = sleepCheckIns
+        self.foodCatalogItems = foodCatalogItems
         self.mealLogs = mealLogs
         self.workoutLogs = workoutLogs
     }
@@ -904,6 +1187,30 @@ private final class FakeHomeHealthRepository: HealthRepository {
 
     func saveSleepCheckIn(_ checkIn: SleepCheckIn, replacingCheckInWithID originalID: UUID?) throws {
         sleepCheckIns.append(checkIn)
+    }
+
+    func searchFoodCatalogItems(matching query: String, limit: Int) throws -> [FoodCatalogItem] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = normalizedQuery.isEmpty
+            ? foodCatalogItems
+            : foodCatalogItems.filter { $0.name.lowercased().contains(normalizedQuery) }
+        return Array(filtered.prefix(max(0, limit)))
+    }
+
+    func fetchCustomFoodCatalogItems() throws -> [FoodCatalogItem] {
+        foodCatalogItems
+    }
+
+    func saveFoodCatalogItem(_ item: FoodCatalogItem) throws {
+        if let index = foodCatalogItems.firstIndex(where: { $0.id == item.id }) {
+            foodCatalogItems[index] = item
+        } else {
+            foodCatalogItems.append(item)
+        }
+    }
+
+    func deleteFoodCatalogItem(withID id: UUID) throws {
+        foodCatalogItems.removeAll { $0.id == id }
     }
 
     func fetchMealLogs(on date: Date, calendar: Calendar) throws -> [MealLog] {
@@ -1076,6 +1383,14 @@ private final class FakeViceRepository: ViceRepository {
     func deleteViceLog(withID id: UUID) throws {
         logs.removeAll { $0.id == id }
     }
+
+    func fetchViceSessions() throws -> [ViceSession] {
+        []
+    }
+
+    func saveViceSession(_ session: ViceSession) throws {}
+
+    func deleteViceSession(withID id: UUID) throws {}
 }
 
 @MainActor

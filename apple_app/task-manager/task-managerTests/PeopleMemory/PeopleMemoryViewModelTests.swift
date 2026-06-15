@@ -58,6 +58,40 @@ struct PeopleMemoryViewModelTests {
         #expect(viewModel.studiedPersonIDs == [due.id])
         #expect(repository.people.first { $0.id == due.id }?.reviewCount == 1)
     }
+
+    @Test func viewModelFiltersByQuickOverviewChips() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let due = PersonMemory(name: "Due", whereMet: "Office", nextReviewAt: now.addingTimeInterval(-60))
+        let needsCues = PersonMemory(name: "New")
+        let tagged = PersonMemory(name: "Tagged", whereMet: "Cafe", tagIDs: [UUID()])
+        let repository = FakePeopleMemoryRepository(people: [due, needsCues, tagged])
+        let viewModel = PeopleMemoryViewModel(
+            peopleMemoryRepository: repository,
+            nowProvider: { now }
+        )
+
+        viewModel.load()
+
+        viewModel.overviewFilter = .due
+        #expect(viewModel.filteredPeople.map(\.name) == ["Due"])
+
+        viewModel.overviewFilter = .needsCues
+        #expect(viewModel.filteredPeople.map(\.name) == ["New"])
+
+        viewModel.overviewFilter = .tagged
+        #expect(viewModel.filteredPeople.map(\.name) == ["Tagged"])
+
+        viewModel.overviewFilter = .studyReady
+        #expect(viewModel.filteredPeople.map(\.name) == ["Due", "Tagged"])
+    }
+
+    @Test func viewModelAddsQuickNameWithoutOpeningTheForm() {
+        let repository = FakePeopleMemoryRepository()
+        let viewModel = PeopleMemoryViewModel(peopleMemoryRepository: repository)
+
+        #expect(viewModel.addPerson(named: "Ari"))
+        #expect(repository.people.map(\.name) == ["Ari"])
+    }
 }
 
 @MainActor

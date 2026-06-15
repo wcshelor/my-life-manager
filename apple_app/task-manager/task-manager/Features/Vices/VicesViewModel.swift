@@ -1,12 +1,33 @@
+import Combine
 import Foundation
 
 nonisolated struct ViceCardSummary: Identifiable, Equatable, Sendable {
     let vice: Vice
     let todayCount: Int
     let lastLogAt: Date?
+    let recentGaps: [TimeInterval]
 
     var id: UUID {
         vice.id
+    }
+
+    func timeSinceLastLogText(now: Date) -> String? {
+        guard let lastLogAt else {
+            return nil
+        }
+
+        return ViceDurationFormatter.elapsedSince(lastLogAt, now: now)
+    }
+
+    func recentHistorySummaryText() -> String? {
+        guard recentGaps.isEmpty == false else {
+            return nil
+        }
+
+        let formattedGaps = recentGaps.map { gap in
+            ViceDurationFormatter.format(gap, style: .compact)
+        }
+        return formattedGaps.joined(separator: " · ")
     }
 }
 
@@ -19,17 +40,21 @@ final class VicesViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private let viceRepository: any ViceRepository
+    private let debriefRepository: any DebriefRepository
     private let calendar: Calendar
     private let nowProvider: @Sendable () -> Date
     private var hasLoaded = false
     private var undoExpirationTask: Task<Void, Never>?
+    private let sessionCandidateFactory = ViceSessionDebriefCandidateFactory()
 
     init(
         viceRepository: any ViceRepository,
+        debriefRepository: any DebriefRepository,
         calendar: Calendar = .current,
         nowProvider: @escaping @Sendable () -> Date = Date.init
     ) {
         self.viceRepository = viceRepository
+        self.debriefRepository = debriefRepository
         self.calendar = calendar
         self.nowProvider = nowProvider
     }
@@ -57,7 +82,8 @@ final class VicesViewModel: ObservableObject {
             return ViceCardSummary(
                 vice: vice,
                 todayCount: todayCount,
-                lastLogAt: viceLogs.first?.timestamp
+                lastLogAt: viceLogs.first?.timestamp,
+                recentGaps: viceLogs.sortedForViceHistory().gapsBetweenRecentInstances()
             )
         }
     }
@@ -74,6 +100,7 @@ final class VicesViewModel: ObservableObject {
         do {
             vices = try viceRepository.fetchVices(includeArchived: true)
             logs = try viceRepository.fetchViceLogs()
+            closeExpiredSessionsAndQueueDebriefs(now: nowProvider())
             errorMessage = nil
             hasLoaded = true
         } catch {
@@ -135,6 +162,7 @@ final class VicesViewModel: ObservableObject {
 
         do {
             try viceRepository.saveViceLog(log)
+            try recordSession(for: vice, at: log.timestamp)
             load()
             setUndoState(logID: log.id, viceName: vice.name)
         } catch {
@@ -174,5 +202,59 @@ final class VicesViewModel: ObservableObject {
         pendingUndoViceName = nil
         undoExpirationTask?.cancel()
         undoExpirationTask = nil
+    }
+
+    private func recordSession(for vice: Vice, at timestamp: Date) throws {
+        let sessions = try viceRepository.fetchViceSessions()
+        let activeSession = sessions.first(where: { session in
+            session.viceID == vice.id && session.isActive(at: timestamp)
+        })
+
+        if var session = activeSession {
+            session.hitCount += 1
+            session.lastHitAt = timestamp
+            try viceRepository.saveViceSession(session)
+            return
+        }
+
+        let session = ViceSession(
+            viceID: vice.id,
+            startedAt: timestamp,
+            lastHitAt: timestamp,
+            hitCount: 1
+        )
+        try viceRepository.saveViceSession(session)
+    }
+
+    private func closeExpiredSessionsAndQueueDebriefs(now: Date) {
+        do {
+            let sessions = try viceRepository.fetchViceSessions()
+            let activeSessions = sessions.filter { $0.isClosed == false }
+            for session in activeSessions where session.isActive(at: now) == false {
+                try closeSession(session, now: now)
+            }
+        } catch {
+            errorMessage = "Unable to update vice sessions: \(error.localizedDescription)"
+        }
+    }
+
+    private func closeSession(_ session: ViceSession, now: Date) throws {
+        guard let vice = vices.first(where: { $0.id == session.viceID }) else {
+            return
+        }
+
+        var closedSession = session
+        closedSession.closedAt = session.closingDate()
+        try viceRepository.saveViceSession(closedSession)
+
+        let candidate = sessionCandidateFactory.makeCandidate(
+            for: closedSession,
+            vice: vice,
+            now: now
+        )
+
+        if try debriefRepository.debrief(withEventKey: candidate.eventKey) == nil {
+            try debriefRepository.saveDebrief(candidate, replacingDebriefWithID: nil)
+        }
     }
 }

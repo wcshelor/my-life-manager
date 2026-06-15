@@ -3,6 +3,31 @@ import Foundation
 
 @MainActor
 final class PeopleMemoryViewModel: ObservableObject {
+    enum OverviewFilter: String, CaseIterable, Identifiable {
+        case all
+        case due
+        case needsCues
+        case tagged
+        case studyReady
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .all:
+                return "All"
+            case .due:
+                return "Due"
+            case .needsCues:
+                return "Needs cues"
+            case .tagged:
+                return "Tagged"
+            case .studyReady:
+                return "Study ready"
+            }
+        }
+    }
+
     static let starterTagNames = [
         "School",
         "Work",
@@ -16,6 +41,7 @@ final class PeopleMemoryViewModel: ObservableObject {
     @Published private(set) var people: [PersonMemory] = []
     @Published private(set) var tags: [PersonTag] = []
     @Published var searchText = ""
+    @Published var overviewFilter: OverviewFilter = .all
     @Published private(set) var studyCards: [PeopleStudyCard] = []
     @Published private(set) var studiedPersonIDs: Set<UUID> = []
     @Published private(set) var errorMessage: String?
@@ -45,7 +71,13 @@ final class PeopleMemoryViewModel: ObservableObject {
 
     var filteredPeople: [PersonMemory] {
         people.filter { person in
-            person.matchesSearchText(searchText, tags: tags)
+            person.matchesSearchText(searchText, tags: tags) && matchesOverviewFilter(person)
+        }
+    }
+
+    var overviewFilters: [(filter: OverviewFilter, count: Int)] {
+        OverviewFilter.allCases.map { filter in
+            (filter, count(for: filter))
         }
     }
 
@@ -115,6 +147,21 @@ final class PeopleMemoryViewModel: ObservableObject {
         }
     }
 
+    func addPerson(named name: String) -> Bool {
+        guard let person = PersonMemory(newName: name, createdAt: nowProvider()) else {
+            return false
+        }
+
+        do {
+            try peopleMemoryRepository.savePerson(person, replacingPersonWithID: nil)
+            load()
+            return true
+        } catch {
+            errorMessage = "Unable to save person: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func deletePerson(withID id: UUID) {
         do {
             try peopleMemoryRepository.deletePerson(withID: id)
@@ -155,6 +202,38 @@ final class PeopleMemoryViewModel: ObservableObject {
         } catch {
             errorMessage = "Unable to update study card: \(error.localizedDescription)"
         }
+    }
+
+    private func matchesOverviewFilter(_ person: PersonMemory) -> Bool {
+        switch overviewFilter {
+        case .all:
+            return true
+        case .due:
+            return person.isDue(at: nowProvider())
+        case .needsCues:
+            return person.needsEnrichment
+        case .tagged:
+            return person.tagIDs.isEmpty == false
+        case .studyReady:
+            return person.isStudyReady
+        }
+    }
+
+    private func count(for filter: OverviewFilter) -> Int {
+        people.filter { person in
+            switch filter {
+            case .all:
+                return true
+            case .due:
+                return person.isDue(at: nowProvider())
+            case .needsCues:
+                return person.needsEnrichment
+            case .tagged:
+                return person.tagIDs.isEmpty == false
+            case .studyReady:
+                return person.isStudyReady
+            }
+        }.count
     }
 
     private func saveTags(named names: [String]) throws -> [PersonTag] {

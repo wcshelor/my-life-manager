@@ -1,5 +1,54 @@
 import Foundation
 
+nonisolated enum ViceSessionPolicy {
+    static let defaultWindow: TimeInterval = 3 * 3_600
+}
+
+nonisolated struct ViceSession: Identifiable, Equatable, Hashable, Sendable {
+    let id: UUID
+    let viceID: UUID
+    let startedAt: Date
+    var lastHitAt: Date
+    var hitCount: Int
+    var closedAt: Date?
+
+    init(
+        id: UUID = UUID(),
+        viceID: UUID,
+        startedAt: Date,
+        lastHitAt: Date? = nil,
+        hitCount: Int = 1,
+        closedAt: Date? = nil
+    ) {
+        self.id = id
+        self.viceID = viceID
+        self.startedAt = startedAt
+        self.lastHitAt = lastHitAt ?? startedAt
+        self.hitCount = Swift.max(1, hitCount)
+        self.closedAt = closedAt
+    }
+
+    var isClosed: Bool {
+        closedAt != nil
+    }
+
+    func isActive(at now: Date, window: TimeInterval = ViceSessionPolicy.defaultWindow) -> Bool {
+        guard closedAt == nil else {
+            return false
+        }
+
+        return now.timeIntervalSince(lastHitAt) <= window
+    }
+
+    func closingDate(window: TimeInterval = ViceSessionPolicy.defaultWindow) -> Date {
+        lastHitAt.addingTimeInterval(window)
+    }
+
+    var duration: TimeInterval {
+        Swift.max(0, lastHitAt.timeIntervalSince(startedAt))
+    }
+}
+
 nonisolated struct Vice: Identifiable, Equatable, Hashable, Sendable {
     let id: UUID
     var name: String
@@ -65,7 +114,46 @@ nonisolated struct ViceLog: Identifiable, Equatable, Hashable, Sendable {
         self.id = id
         self.viceID = viceID
         self.timestamp = timestamp
-        self.amount = max(1, amount)
+        self.amount = Swift.max(1, amount)
+    }
+}
+
+nonisolated struct ViceSessionSummary: Equatable, Sendable {
+    let session: ViceSession
+    let viceName: String
+
+    var summaryText: String {
+        let durationText = Self.formatDuration(session.duration, style: .compact)
+        return "\(viceName) session: \(session.hitCount) hit\(session.hitCount == 1 ? "" : "s") over \(durationText)."
+    }
+
+    private static func formatDuration(_ interval: TimeInterval, style: ViceDurationStyle) -> String {
+        ViceDurationFormatter.format(interval, style: style)
+    }
+}
+
+nonisolated enum ViceDurationStyle {
+    case compact
+    case elapsed
+}
+
+nonisolated enum ViceDurationFormatter {
+    static func format(_ interval: TimeInterval, style: ViceDurationStyle) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.zeroFormattingBehavior = .pad
+        formatter.unitsStyle = .positional
+        formatter.allowedUnits = interval >= 3_600 ? [.hour, .minute, .second] : [.minute, .second]
+        let formatted = formatter.string(from: Swift.max(0, interval)) ?? "00:00"
+        switch style {
+        case .compact:
+            return formatted
+        case .elapsed:
+            return formatted
+        }
+    }
+
+    static func elapsedSince(_ date: Date, now: Date) -> String {
+        format(now.timeIntervalSince(date), style: .elapsed)
     }
 }
 
@@ -101,5 +189,69 @@ nonisolated struct HomeVicesSummary: Equatable, Sendable {
 
     var value: String {
         "\(activeViceCount)"
+    }
+}
+
+nonisolated struct ViceSessionDebriefCandidateFactory {
+    func makeCandidate(
+        for session: ViceSession,
+        vice: Vice,
+        now: Date
+    ) -> CalendarDebriefRecord {
+        let summary = ViceSessionSummary(session: session, viceName: vice.name)
+        return CalendarDebriefRecord(
+            id: session.id,
+            sourceType: .viceSession,
+            sourceID: vice.id.uuidString,
+            sourceContext: vice.name,
+            eventKey: session.id.uuidString,
+            eventIdentifier: session.id.uuidString,
+            calendarIdentifier: nil,
+            calendarTitleSnapshot: vice.name,
+            titleSnapshot: summary.summaryText,
+            startDateSnapshot: session.startedAt,
+            endDateSnapshot: session.lastHitAt,
+            templateKind: .viceSession,
+            createdAt: now,
+            updatedAt: now,
+            status: .pending,
+            noDebriefNeeded: false
+        )
+    }
+}
+
+extension Array where Element == ViceLog {
+    func sortedForViceHistory() -> [ViceLog] {
+        sortedForViceLogs()
+    }
+
+    func gapsBetweenRecentInstances(limit: Int = 2) -> [TimeInterval] {
+        let ordered = sorted { $0.timestamp < $1.timestamp }
+        guard ordered.count > 1 else {
+            return []
+        }
+
+        var gaps: [TimeInterval] = []
+        for index in stride(from: ordered.count - 1, through: 1, by: -1) {
+            let end = ordered[index].timestamp
+            let start = ordered[index - 1].timestamp
+            gaps.append(Swift.max(0, end.timeIntervalSince(start)))
+            if gaps.count == limit {
+                break
+            }
+        }
+        return gaps
+    }
+}
+
+extension Array where Element == ViceSession {
+    func sortedForViceSessions() -> [ViceSession] {
+        sorted { lhs, rhs in
+            if lhs.lastHitAt != rhs.lastHitAt {
+                return lhs.lastHitAt > rhs.lastHitAt
+            }
+
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
     }
 }

@@ -1,27 +1,73 @@
+import Combine
+import Foundation
 import SwiftUI
+
+nonisolated enum DebriefPersistAction: Sendable, Equatable {
+    case complete
+    case skip
+}
+
+nonisolated struct DebriefQueueSnapshot: Sendable, Equatable {
+    var pendingCandidates: [CalendarDebriefCandidate]
+    var debriefsByEventKey: [String: CalendarDebriefRecord]
+    var tasksByID: [UUID: MyTask]
+    var projectsByID: [UUID: Project]
+    var focusesByLookupKey: [String: CalendarBlockFocus]
+    var completedTodayCount: Int
+
+    static let empty = DebriefQueueSnapshot(
+        pendingCandidates: [],
+        debriefsByEventKey: [:],
+        tasksByID: [:],
+        projectsByID: [:],
+        focusesByLookupKey: [:],
+        completedTodayCount: 0
+    )
+}
 
 @MainActor
 final class DebriefQueueViewModel: ObservableObject {
     @Published private(set) var pendingCandidates: [CalendarDebriefCandidate] = []
+    @Published var draft: DebriefDraft = .placeholder
     @Published private(set) var completedTodayCount = 0
     @Published private(set) var errorMessage: String?
 
-    private let debriefRepository: any DebriefRepository
-    private let captureRepository: any CaptureRepository
-    private let taskRepository: any TaskRepository
-    private let projectRepository: any ProjectRepository
-    private let calendarBlockFocusRepository: any CalendarBlockFocusRepository
-    private let calendarPermissionProvider: any CalendarPermissionProviding
-    private let calendarReader: any CalendarReading
-    private let calendar: Calendar
-    private let nowProvider: @Sendable () -> Date
-    private let queueSettings: DebriefQueueSettings
-    private var cachedDebriefsByEventKey: [String: CalendarDebriefRecord] = [:]
-    private var cachedTasksByID: [UUID: MyTask] = [:]
-    private var cachedProjectsByID: [UUID: Project] = [:]
-    private var cachedFocusesByEventLookupKey: [String: CalendarBlockFocus] = [:]
+    private let loadSnapshot: @MainActor () async throws -> DebriefQueueSnapshot
+    private let persistCurrent: @MainActor (
+        CalendarDebriefCandidate,
+        DebriefDraft,
+        DebriefPersistAction,
+        CalendarDebriefRecord?
+    ) throws -> Void
+
+    private var snapshot: DebriefQueueSnapshot = .empty
+
+    var currentCandidate: CalendarDebriefCandidate? {
+        pendingCandidates.first
+    }
+
+    var canShowDetailButton: Bool {
+        draft.quickOutcome != nil
+    }
+
+    var canFinishCurrent: Bool {
+        currentCandidate != nil && draft.quickOutcome != nil
+    }
 
     init(
+        loadSnapshot: @escaping @MainActor () async throws -> DebriefQueueSnapshot,
+        persistCurrent: @escaping @MainActor (
+            CalendarDebriefCandidate,
+            DebriefDraft,
+            DebriefPersistAction,
+            CalendarDebriefRecord?
+        ) throws -> Void
+    ) {
+        self.loadSnapshot = loadSnapshot
+        self.persistCurrent = persistCurrent
+    }
+
+    convenience init(
         debriefRepository: any DebriefRepository,
         captureRepository: any CaptureRepository,
         taskRepository: any TaskRepository,
@@ -33,202 +79,233 @@ final class DebriefQueueViewModel: ObservableObject {
         nowProvider: @escaping @Sendable () -> Date = Date.init,
         queueSettings: DebriefQueueSettings = .mvpDefault
     ) {
-        self.debriefRepository = debriefRepository
-        self.captureRepository = captureRepository
-        self.taskRepository = taskRepository
-        self.projectRepository = projectRepository
-        self.calendarBlockFocusRepository = calendarBlockFocusRepository
-        self.calendarPermissionProvider = calendarPermissionProvider
-        self.calendarReader = calendarReader
-        self.calendar = calendar
-        self.nowProvider = nowProvider
-        self.queueSettings = queueSettings
+        self.init(
+            loadSnapshot: {
+                let permissionStatus = calendarPermissionProvider.currentStatus()
+                guard permissionStatus == .fullAccessGranted else {
+                    return .empty
+                }
+
+                let now = nowProvider()
+                let queueStart = calendar.date(
+                    byAdding: .day,
+                    value: -max(1, queueSettings.lookbackDays),
+                    to: now
+                ) ?? now.addingTimeInterval(-Double(max(1, queueSettings.lookbackDays)) * 86_400)
+
+                let events = try await calendarReader.fetchEvents(
+                    in: DateInterval(start: queueStart, end: now)
+                )
+                let debriefs = try debriefRepository.fetchDebriefs()
+                let tasks = try taskRepository.fetchTasks()
+                let projects = try projectRepository.fetchProjects(includeArchived: false)
+                let focuses = try calendarBlockFocusRepository.fetchFocuses(
+                    in: DateInterval(start: queueStart, end: now)
+                )
+
+                let pendingCandidates = DebriefQueueService(settings: queueSettings).pendingCandidates(
+                    from: events,
+                    existingDebriefs: debriefs,
+                    now: now
+                )
+
+                let debriefsByEventKey = Dictionary(
+                    uniqueKeysWithValues: debriefs.map { ($0.eventKey, $0) }
+                )
+                let tasksByID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+                let projectsByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
+                let focusesByLookupKey = Dictionary(
+                    uniqueKeysWithValues: focuses.map { focus in
+                        (
+                            Self.focusLookupKey(
+                                eventIdentifier: focus.eventIdentifier,
+                                calendarIdentifier: focus.calendarIdentifier
+                            ),
+                            focus
+                        )
+                    }
+                )
+                let completedTodayCount = debriefs.filter { debrief in
+                    guard let completedAt = debrief.completedAt else {
+                        return false
+                    }
+
+                    return calendar.isDate(completedAt, inSameDayAs: now)
+                }.count
+
+                return DebriefQueueSnapshot(
+                    pendingCandidates: pendingCandidates,
+                    debriefsByEventKey: debriefsByEventKey,
+                    tasksByID: tasksByID,
+                    projectsByID: projectsByID,
+                    focusesByLookupKey: focusesByLookupKey,
+                    completedTodayCount: completedTodayCount
+                )
+            },
+            persistCurrent: { candidate, draft, action, existingDebrief in
+                let now = nowProvider()
+                var captureIDs: [UUID] = existingDebrief?.createdCaptureIDs ?? []
+
+                switch action {
+                case .complete:
+                    for captureText in draft.captureLines {
+                        guard let cleanedTitle = CaptureItem.cleanedTitle(from: captureText) else {
+                            continue
+                        }
+
+                        let capture = CaptureItem(
+                            title: cleanedTitle,
+                            source: "Debrief · \(candidate.title)",
+                            createdAt: now,
+                            updatedAt: now
+                        )
+                        try captureRepository.saveCapture(capture, replacingCaptureWithID: nil)
+                        captureIDs.append(capture.id)
+                    }
+
+                    let debriefID = existingDebrief?.id ?? UUID()
+                    let taskOutcomes = draft.taskOutcomeDrafts.map { taskOutcomeDraft in
+                        DebriefTaskOutcome(
+                            debriefID: debriefID,
+                            taskID: taskOutcomeDraft.taskID,
+                            taskTitleSnapshot: taskOutcomeDraft.taskTitleSnapshot,
+                            outcome: taskOutcomeDraft.outcome,
+                            note: taskOutcomeDraft.note,
+                            didUpdateTaskStatus: taskOutcomeDraft.didUpdateTaskStatus,
+                            createdAt: now,
+                            updatedAt: now
+                        )
+                    }
+
+                    for taskOutcome in taskOutcomes where taskOutcome.outcome == .completed && taskOutcome.didUpdateTaskStatus {
+                        guard var task = try taskRepository.task(withID: taskOutcome.taskID) else {
+                            continue
+                        }
+
+                        task.status = .done
+                        task.completedAt = now
+                        task.updatedAt = now
+                        try? taskRepository.saveTask(task, replacingTaskWithID: task.id)
+                    }
+
+                    let completedDebrief = draft.makeDebriefRecord(
+                        candidate: candidate,
+                        status: .completed,
+                        completedAt: now,
+                        noDebriefNeeded: false,
+                        captureIDs: captureIDs,
+                        taskOutcomes: taskOutcomes,
+                        preserving: existingDebrief
+                    )
+
+                    try debriefRepository.saveDebrief(
+                        completedDebrief,
+                        replacingDebriefWithID: existingDebrief?.id
+                    )
+
+                case .skip:
+                    let skippedDebrief = draft.makeDebriefRecord(
+                        candidate: candidate,
+                        status: .skipped,
+                        completedAt: now,
+                        noDebriefNeeded: true,
+                        captureIDs: captureIDs,
+                        taskOutcomes: existingDebrief?.taskOutcomes ?? [],
+                        preserving: existingDebrief
+                    )
+
+                    try debriefRepository.saveDebrief(
+                        skippedDebrief,
+                        replacingDebriefWithID: existingDebrief?.id
+                    )
+                }
+            }
+        )
     }
 
     func load() async {
-        let permissionStatus = calendarPermissionProvider.currentStatus()
-        guard permissionStatus == .fullAccessGranted else {
-            pendingCandidates = []
-            errorMessage = "Calendar access is required to surface Debriefs."
-            return
-        }
-
-        let now = nowProvider()
-        let queueStart = calendar.date(
-            byAdding: .day,
-            value: -max(1, queueSettings.lookbackDays),
-            to: now
-        ) ?? now.addingTimeInterval(-Double(max(1, queueSettings.lookbackDays)) * 86_400)
-
         do {
-            let events = try await calendarReader.fetchEvents(
-                in: DateInterval(start: queueStart, end: now)
-            )
-            let debriefs = try debriefRepository.fetchDebriefs()
-            let tasks = try taskRepository.fetchTasks()
-            let projects = try projectRepository.fetchProjects(includeArchived: false)
-            let focuses = try calendarBlockFocusRepository.fetchFocuses(
-                in: DateInterval(start: queueStart, end: now)
-            )
-            cachedDebriefsByEventKey = Dictionary(
-                uniqueKeysWithValues: debriefs.map { ($0.eventKey, $0) }
-            )
-            cachedTasksByID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
-            cachedProjectsByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
-            cachedFocusesByEventLookupKey = Dictionary(
-                uniqueKeysWithValues: focuses.map { focus in
-                    (
-                        Self.focusLookupKey(
-                            eventIdentifier: focus.eventIdentifier,
-                            calendarIdentifier: focus.calendarIdentifier
-                        ),
-                        focus
-                    )
-                }
-            )
-            completedTodayCount = debriefs.filter { debrief in
-                guard let completedAt = debrief.completedAt else {
-                    return false
-                }
-
-                return calendar.isDate(completedAt, inSameDayAs: now)
-            }.count
-            pendingCandidates = enrichCandidates(
-                DebriefQueueService(settings: queueSettings).pendingCandidates(
-                from: events,
-                existingDebriefs: debriefs,
-                now: now
-                )
-            )
+            snapshot = try await loadSnapshot()
+            pendingCandidates = snapshot.pendingCandidates
+            completedTodayCount = snapshot.completedTodayCount
+            draft = draft(for: currentCandidate)
             errorMessage = nil
         } catch {
-            errorMessage = "Unable to load Debriefs: \(error.localizedDescription)"
+            snapshot = .empty
             pendingCandidates = []
+            completedTodayCount = 0
+            draft = .placeholder
+            errorMessage = "Unable to load Debriefs: \(error.localizedDescription)"
         }
     }
 
-    func clearError() {
+    func dismissErrorMessage() {
         errorMessage = nil
     }
 
-    func draft(for candidate: CalendarDebriefCandidate) -> DebriefDraft {
-        let focus = focus(for: candidate)
-        let selectedTasks = focus?.selectedTaskIDs.compactMap { cachedTasksByID[$0] } ?? []
+    func selectTemplateKind(_ kind: DebriefTemplateKind) {
+        draft.templateKind = kind
+        draft.rebuildDetailedResponses()
+    }
+
+    func selectQuickOutcome(_ outcome: DebriefQuickOutcome) {
+        draft.quickOutcome = outcome
+        if outcome == .skipped {
+            draft.quickNote = draft.quickNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    func completeCurrent() async -> Bool {
+        guard let candidate = currentCandidate else {
+            return false
+        }
+
+        do {
+            try persistCurrent(candidate, draft, .complete, snapshot.debriefsByEventKey[candidate.eventKey])
+            await load()
+            return true
+        } catch {
+            errorMessage = "Unable to complete Debrief: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func skipCurrent() async -> Bool {
+        guard let candidate = currentCandidate else {
+            return false
+        }
+
+        do {
+            try persistCurrent(candidate, draft, .skip, snapshot.debriefsByEventKey[candidate.eventKey])
+            await load()
+            return true
+        } catch {
+            errorMessage = "Unable to skip Debrief: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func currentDraft(for candidate: CalendarDebriefCandidate) -> DebriefDraft {
+        draft(for: candidate)
+    }
+
+    private func draft(for candidate: CalendarDebriefCandidate?) -> DebriefDraft {
+        guard let candidate else {
+            return .placeholder
+        }
+
         return DebriefDraft(
             candidate: candidate,
-            existingDebrief: cachedDebriefsByEventKey[candidate.eventKey],
-            blockFocus: focus,
-            selectedTasks: selectedTasks
+            existingDebrief: snapshot.debriefsByEventKey[candidate.eventKey],
+            blockFocus: focus(for: candidate),
+            selectedTasks: selectedTasks(for: candidate)
         )
     }
 
-    func completeDebrief(
-        for candidate: CalendarDebriefCandidate,
-        draft: DebriefDraft
-    ) throws {
-        let now = nowProvider()
-        var captureIDs: [UUID] = []
-
-        for captureText in draft.captureLines {
-            guard let cleanedTitle = CaptureItem.cleanedTitle(from: captureText) else {
-                continue
-            }
-
-            let capture = CaptureItem(
-                title: cleanedTitle,
-                source: "Debrief · \(candidate.title)",
-                createdAt: now,
-                updatedAt: now
-            )
-            try captureRepository.saveCapture(capture, replacingCaptureWithID: nil)
-            captureIDs.append(capture.id)
-        }
-
-        let existingDebrief = cachedDebriefsByEventKey[candidate.eventKey]
-        let debriefID = existingDebrief?.id ?? UUID()
-        let taskOutcomes = draft.taskOutcomeDrafts.map { taskOutcomeDraft in
-            DebriefTaskOutcome(
-                debriefID: debriefID,
-                taskID: taskOutcomeDraft.taskID,
-                taskTitleSnapshot: taskOutcomeDraft.taskTitleSnapshot,
-                outcome: taskOutcomeDraft.outcome,
-                note: taskOutcomeDraft.note,
-                didUpdateTaskStatus: taskOutcomeDraft.didUpdateTaskStatus,
-                createdAt: now,
-                updatedAt: now
-            )
-        }
-        applyTaskOutcomeUpdates(taskOutcomes, at: now)
-        let completedDebrief = draft.makeDebriefRecord(
-            candidate: candidate,
-            status: .completed,
-            completedAt: now,
-            noDebriefNeeded: false,
-            captureIDs: captureIDs,
-            taskOutcomes: taskOutcomes,
-            preserving: existingDebrief
-        )
-
-        try debriefRepository.saveDebrief(
-            completedDebrief,
-            replacingDebriefWithID: existingDebrief?.id
-        )
-        cachedDebriefsByEventKey[candidate.eventKey] = completedDebrief
-    }
-
-    func skipDebrief(for candidate: CalendarDebriefCandidate) throws {
-        let now = nowProvider()
-        let existingDebrief = cachedDebriefsByEventKey[candidate.eventKey]
-        let skippedDebrief = CalendarDebriefRecord(
-            id: existingDebrief?.id ?? UUID(),
-            eventKey: candidate.eventKey,
-            eventIdentifier: candidate.eventIdentifier,
-            calendarIdentifier: candidate.calendarIdentifier,
-            calendarTitleSnapshot: candidate.calendarTitle,
-            titleSnapshot: candidate.title,
-            startDateSnapshot: candidate.start,
-            endDateSnapshot: candidate.end,
-            templateKind: existingDebrief?.templateKind ?? candidate.suggestedTemplate,
-            createdAt: existingDebrief?.createdAt ?? now,
-            updatedAt: now,
-            completedAt: now,
-            status: .skipped,
-            noDebriefNeeded: true,
-            essentialNote: existingDebrief?.essentialNote,
-            createdCaptureIDs: existingDebrief?.createdCaptureIDs ?? [],
-            taskOutcomes: existingDebrief?.taskOutcomes ?? []
-        )
-
-        try debriefRepository.saveDebrief(
-            skippedDebrief,
-            replacingDebriefWithID: existingDebrief?.id
-        )
-        cachedDebriefsByEventKey[candidate.eventKey] = skippedDebrief
-    }
-
-    private func enrichCandidates(_ candidates: [CalendarDebriefCandidate]) -> [CalendarDebriefCandidate] {
-        let matcher = CalendarProjectMatcher()
-
-        return candidates.map { candidate in
-            var enrichedCandidate = candidate
-            if let focus = focus(for: candidate) {
-                enrichedCandidate.linkedProjectID = focus.linkedProjectID
-                enrichedCandidate.selectedTaskCount = focus.selectedTaskCount
-                if let projectID = focus.linkedProjectID {
-                    enrichedCandidate.linkedProjectName = cachedProjectsByID[projectID]?.name
-                }
-                return enrichedCandidate
-            }
-
-            let matchResult = matcher.match(eventTitle: candidate.title, projects: Array(cachedProjectsByID.values))
-            guard let projectID = matchResult.matchedProjectID else {
-                return enrichedCandidate
-            }
-
-            enrichedCandidate.linkedProjectID = projectID
-            enrichedCandidate.linkedProjectName = cachedProjectsByID[projectID]?.name
-            return enrichedCandidate
-        }
+    private func selectedTasks(for candidate: CalendarDebriefCandidate) -> [MyTask] {
+        focus(for: candidate)?
+            .selectedTaskIDs
+            .compactMap { snapshot.tasksByID[$0] } ?? []
     }
 
     private func focus(for candidate: CalendarDebriefCandidate) -> CalendarBlockFocus? {
@@ -241,26 +318,10 @@ final class DebriefQueueViewModel: ObservableObject {
             return nil
         }
 
-        return cachedFocusesByEventLookupKey[Self.focusLookupKey(
+        return snapshot.focusesByLookupKey[Self.focusLookupKey(
             eventIdentifier: eventIdentifier,
             calendarIdentifier: calendarIdentifier
         )]
-    }
-
-    private func applyTaskOutcomeUpdates(
-        _ taskOutcomes: [DebriefTaskOutcome],
-        at date: Date
-    ) {
-        for outcome in taskOutcomes where outcome.outcome == .completed && outcome.didUpdateTaskStatus {
-            guard var task = try taskRepository.task(withID: outcome.taskID) else {
-                continue
-            }
-
-            task.status = .done
-            task.completedAt = date
-            task.updatedAt = date
-            try? taskRepository.saveTask(task, replacingTaskWithID: task.id)
-        }
     }
 
     private static func focusLookupKey(
@@ -274,7 +335,7 @@ final class DebriefQueueViewModel: ObservableObject {
 struct DebriefListView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: DebriefQueueViewModel
-    @State private var selectedCandidate: CalendarDebriefCandidate?
+    @State private var navigationPath: [DebriefRoute] = []
 
     let onChanged: () -> Void
 
@@ -303,64 +364,62 @@ struct DebriefListView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(viewModel.pendingCandidates.isEmpty ? "All caught up" : "\(viewModel.pendingCandidates.count) Debriefs waiting")
-                        .font(.headline)
-                    Text(viewModel.completedTodayCount > 0 ? "\(viewModel.completedTodayCount) loop\(viewModel.completedTodayCount == 1 ? "" : "s") closed today" : "Close the loop on meaningful events.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Debriefs pending") {
-                if viewModel.pendingCandidates.isEmpty {
-                    ContentUnavailableView(
-                        "No Debriefs pending",
-                        systemImage: "checkmark.circle",
-                        description: Text("Recent ended calendar events are all processed.")
+        NavigationStack(path: $navigationPath) {
+            Group {
+                if let candidate = viewModel.currentCandidate {
+                    DebriefQueueCard(
+                        candidate: candidate,
+                        draft: $viewModel.draft,
+                        completedTodayCount: viewModel.completedTodayCount,
+                        canShowDetailButton: viewModel.canShowDetailButton,
+                        canFinishCurrent: viewModel.canFinishCurrent,
+                        onShowDetail: {
+                            navigationPath.append(.detail)
+                        },
+                        onFinish: {
+                            Task {
+                                if await viewModel.completeCurrent() {
+                                    onChanged()
+                                }
+                            }
+                        },
+                        onSkip: {
+                            Task {
+                                if await viewModel.skipCurrent() {
+                                    onChanged()
+                                }
+                            }
+                        },
+                        selectTemplateKind: { kind in
+                            viewModel.selectTemplateKind(kind)
+                        },
+                        selectQuickOutcome: { outcome in
+                            viewModel.selectQuickOutcome(outcome)
+                        }
                     )
                 } else {
-                    ForEach(viewModel.pendingCandidates) { candidate in
-                        Button {
-                            selectedCandidate = candidate
-                        } label: {
-                            DebriefCandidateRow(candidate: candidate)
-                        }
-                        .buttonStyle(.plain)
+                    ContentUnavailableView(
+                        "All caught up",
+                        systemImage: "checkmark.circle",
+                        description: Text("Pending Debriefs are surfaced here one at a time.")
+                    )
+                    .padding()
+                }
+            }
+            .navigationTitle("Debriefs")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        onChanged()
+                        dismiss()
                     }
                 }
             }
-        }
-        .navigationTitle("Debriefs")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Done") {
-                    dismiss()
+            .navigationDestination(for: DebriefRoute.self) { route in
+                switch route {
+                case .detail:
+                    DebriefDetailView(draft: $viewModel.draft)
                 }
-            }
-        }
-        .sheet(item: $selectedCandidate) { candidate in
-            NavigationStack {
-                DebriefFormView(
-                    candidate: candidate,
-                    initialDraft: viewModel.draft(for: candidate),
-                    onComplete: { draft in
-                        try viewModel.completeDebrief(for: candidate, draft: draft)
-                        Task {
-                            await viewModel.load()
-                        }
-                        onChanged()
-                    },
-                    onSkip: {
-                        try viewModel.skipDebrief(for: candidate)
-                        Task {
-                            await viewModel.load()
-                        }
-                        onChanged()
-                    }
-                )
             }
         }
         .task {
@@ -373,7 +432,7 @@ struct DebriefListView: View {
             get: { viewModel.errorMessage != nil },
             set: { isPresented in
                 if isPresented == false {
-                    viewModel.clearError()
+                    viewModel.dismissErrorMessage()
                 }
             }
         )) {
@@ -384,350 +443,252 @@ struct DebriefListView: View {
     }
 }
 
-private struct DebriefCandidateRow: View {
-    let candidate: CalendarDebriefCandidate
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(candidate.title)
-                .font(.headline)
-
-            Text(timeText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Text(subtitleText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var timeText: String {
-        "\(candidate.start.formatted(date: .abbreviated, time: .shortened)) - \(candidate.end.formatted(date: .omitted, time: .shortened))"
-    }
-
-    private var subtitleText: String {
-        var parts: [String] = [candidate.suggestedTemplate.displayName, candidate.calendarTitle]
-
-        if let linkedProjectName = candidate.linkedProjectName {
-            parts.insert(linkedProjectName, at: 0)
-        }
-
-        if candidate.selectedTaskCount > 0 {
-            parts.append("\(candidate.selectedTaskCount) focus task\(candidate.selectedTaskCount == 1 ? "" : "s")")
-        }
-
-        return parts.joined(separator: " · ")
-    }
+private enum DebriefRoute: Hashable {
+    case detail
 }
 
-private struct DebriefFormView: View {
-    @Environment(\.dismiss) private var dismiss
+private struct DebriefQueueCard: View {
     let candidate: CalendarDebriefCandidate
-    let onComplete: (DebriefDraft) throws -> Void
-    let onSkip: () throws -> Void
-
-    @State private var draft: DebriefDraft
-    @State private var captureInput = ""
-    @State private var isSaving = false
-    @State private var errorMessage: String?
-
-    init(
-        candidate: CalendarDebriefCandidate,
-        initialDraft: DebriefDraft,
-        onComplete: @escaping (DebriefDraft) throws -> Void,
-        onSkip: @escaping () throws -> Void
-    ) {
-        self.candidate = candidate
-        self.onComplete = onComplete
-        self.onSkip = onSkip
-        _draft = State(initialValue: initialDraft)
-    }
+    @Binding var draft: DebriefDraft
+    let completedTodayCount: Int
+    let canShowDetailButton: Bool
+    let canFinishCurrent: Bool
+    let onShowDetail: () -> Void
+    let onFinish: () -> Void
+    let onSkip: () -> Void
+    let selectTemplateKind: (DebriefTemplateKind) -> Void
+    let selectQuickOutcome: (DebriefQuickOutcome) -> Void
 
     var body: some View {
-        Form {
-            Section("Event") {
-                Text(candidate.title)
-                    .font(.headline)
-                Text("\(candidate.start.formatted(date: .abbreviated, time: .shortened)) - \(candidate.end.formatted(date: .omitted, time: .shortened))")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text(candidate.calendarTitle)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Template") {
-                Picker("Debrief type", selection: $draft.templateKind) {
-                    ForEach(DebriefTemplateKind.allCases) { kind in
-                        Text(kind.displayName).tag(kind)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                templateSection
+                quickOutcomeSection
+                if canShowDetailButton {
+                    Button {
+                        onShowDetail()
+                    } label: {
+                        Label("Enter More Detailed Info", systemImage: "slider.horizontal.3")
+                            .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.bordered)
                 }
-                .pickerStyle(.segmented)
-            }
 
-            essentialSection
-
-            Section {
-                DisclosureGroup("More detail") {
-                    optionalSectionBody
-                }
-            }
-
-            if draft.taskOutcomeDrafts.isEmpty == false {
-                Section("Tasks from this block") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach($draft.taskOutcomeDrafts) { $taskOutcomeDraft in
-                            DebriefTaskOutcomeCard(
-                                taskOutcomeDraft: $taskOutcomeDraft
-                            )
-                        }
-                    }
-                }
-            }
-
-            Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Capture from this event")
-                        .font(.headline)
-                    HStack {
-                        TextField("Loose task, idea, promise, reminder...", text: $captureInput)
-                        Button("Add") {
-                            addCaptureLine()
-                        }
-                        .disabled(CaptureItem.cleanedTitle(from: captureInput) == nil)
-                    }
-
-                    if draft.captureLines.isEmpty == false {
-                        ForEach(Array(draft.captureLines.enumerated()), id: \.offset) { index, line in
-                            HStack {
-                                Text(line)
-                                    .font(.subheadline)
-                                Spacer()
-                                Button(role: .destructive) {
-                                    draft.captureLines.remove(at: index)
-                                } label: {
-                                    Image(systemName: "minus.circle")
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Section {
                 Button {
-                    completeDebrief()
+                    onFinish()
                 } label: {
-                    Text(isSaving ? "Saving..." : "Complete Debrief")
+                    Label("Finish Debrief", systemImage: "checkmark.circle.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isSaving)
+                .disabled(canFinishCurrent == false)
 
-                Button("No Debrief needed") {
-                    skipDebrief()
+                Button("No Debrief Needed") {
+                    onSkip()
                 }
                 .frame(maxWidth: .infinity)
-                .disabled(isSaving)
+                .buttonStyle(.borderless)
             }
-        }
-        .navigationTitle("Debrief")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-        }
-        .alert("Debrief", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { isPresented in
-                if isPresented == false {
-                    errorMessage = nil
-                }
-            }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "Unknown error")
+            .padding()
         }
     }
 
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(candidate.title)
+                .font(.title2.weight(.semibold))
+            Text(candidate.timeRangeText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(candidate.calendarTitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if completedTodayCount > 0 {
+                Text("\(completedTodayCount) loop\(completedTodayCount == 1 ? "" : "s") closed today")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.green)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var templateSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Debrief Type")
+                .font(.headline)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(DebriefTemplateKind.allCases) { kind in
+                        Button {
+                            selectTemplateKind(kind)
+                        } label: {
+                            Text(kind.displayName)
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    draft.templateKind == kind
+                                        ? Color.accentColor.opacity(0.18)
+                                        : Color.secondary.opacity(0.12),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private var quickOutcomeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Quick Debrief")
+                .font(.headline)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(draft.templateDefinition.quickOutcomes) { outcome in
+                        Button {
+                            selectQuickOutcome(outcome)
+                        } label: {
+                            Text(outcome.displayName)
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    draft.quickOutcome == outcome
+                                        ? Color.accentColor.opacity(0.22)
+                                        : Color.secondary.opacity(0.12),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct DebriefDetailView: View {
+    @Binding var draft: DebriefDraft
+
+    var body: some View {
+        Form {
+            Section("Quick Note") {
+                TextField("Anything to remember quickly?", text: $draft.quickNote, axis: .vertical)
+            }
+
+            Section("Detailed Prompts") {
+                ForEach($draft.detailedResponses) { $response in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(response.prompt)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        TextField(response.prompt, text: $response.response, axis: .vertical)
+                    }
+                }
+            }
+
+            templateSpecificFields
+
+            if draft.taskOutcomeDrafts.isEmpty == false {
+                Section("Tasks from This Block") {
+                    ForEach($draft.taskOutcomeDrafts) { $taskOutcomeDraft in
+                        DebriefTaskOutcomeCard(taskOutcomeDraft: $taskOutcomeDraft)
+                    }
+                }
+            }
+
+            if draft.captureLines.isEmpty == false {
+                Section("Captures") {
+                    ForEach(Array(draft.captureLines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                    }
+                }
+            }
+        }
+        .navigationTitle("More Detail")
+    }
+
     @ViewBuilder
-    private var essentialSection: some View {
+    private var templateSpecificFields: some View {
         switch draft.templateKind {
         case .workBlock:
             Section("Work Block") {
                 Picker("Did you do what you planned?", selection: $draft.workPlannedOutcome) {
+                    Text("Not set").tag(Optional<WorkBlockPlannedOutcome>.none)
                     ForEach(WorkBlockPlannedOutcome.allCases) { outcome in
                         Text(outcome.displayName).tag(Optional(outcome))
                     }
                 }
 
-                DebriefRatingPicker(
-                    title: "How productive did it feel?",
-                    selection: $draft.workProductivityRating
-                )
+                Picker("Was the block length right?", selection: $draft.workBlockLengthFit) {
+                    Text("Not set").tag(Optional<WorkBlockLengthFit>.none)
+                    ForEach(WorkBlockLengthFit.allCases) { fit in
+                        Text(fit.displayName).tag(Optional(fit))
+                    }
+                }
 
-                TextField(
-                    "What should future-you remember?",
-                    text: $draft.workWhatHappened,
-                    axis: .vertical
+                DebriefRatingPicker(title: "Productivity", selection: $draft.workProductivityRating)
+                DebriefRatingPicker(title: "Energy before", selection: $draft.workEnergyBeforeRating)
+                DebriefRatingPicker(title: "Energy after", selection: $draft.workEnergyAfterRating)
+                DebriefRatingPicker(title: "Focus quality", selection: $draft.workFocusQualityRating)
+
+                TextField("What happened?", text: $draft.workWhatHappened, axis: .vertical)
+                TextField("Next concrete step", text: $draft.workNextStep, axis: .vertical)
+
+                TagSelectionGrid(
+                    title: "Blockers",
+                    allCases: WorkBlockBlocker.allCases,
+                    displayName: { $0.displayName },
+                    selection: $draft.workBlockers
                 )
             }
+
         case .meeting:
             Section("Meeting") {
-                TextField(
-                    "What were the main outcomes?",
-                    text: $draft.meetingOutcomes,
-                    axis: .vertical
-                )
-                TextField(
-                    "Any follow-ups? One per line is fine.",
-                    text: $draft.meetingFollowUps,
-                    axis: .vertical
-                )
-                DebriefRatingPicker(
-                    title: "How useful was this meeting?",
-                    selection: $draft.meetingUsefulnessRating
-                )
+                TextField("Main outcomes", text: $draft.meetingOutcomes, axis: .vertical)
+                TextField("Follow-ups", text: $draft.meetingFollowUps, axis: .vertical)
+                DebriefRatingPicker(title: "Usefulness", selection: $draft.meetingUsefulnessRating)
+                TextField("Decisions made", text: $draft.meetingDecisions, axis: .vertical)
+                TextField("Open questions", text: $draft.meetingOpenQuestions, axis: .vertical)
+                TextField("Deadlines", text: $draft.meetingDeadlines, axis: .vertical)
+                DebriefRatingPicker(title: "Preparedness", selection: $draft.meetingPreparednessRating)
+                TextField("People involved", text: $draft.meetingPeopleInvolved, axis: .vertical)
+                TextField("Remember before next time", text: $draft.meetingRememberBeforeNext, axis: .vertical)
             }
+
         case .social:
             Section("Social") {
-                TextField(
-                    "Anything worth remembering?",
-                    text: $draft.socialWorthRemembering,
-                    axis: .vertical
-                )
-                TextField(
-                    "Any follow-up?",
-                    text: $draft.socialFollowUp,
-                    axis: .vertical
-                )
-                Picker("How did it feel?", selection: $draft.socialMood) {
+                TextField("Worth remembering", text: $draft.socialWorthRemembering, axis: .vertical)
+                TextField("Follow-up", text: $draft.socialFollowUp, axis: .vertical)
+                Picker("Mood", selection: $draft.socialMood) {
+                    Text("Not set").tag(Optional<SocialDebriefMood>.none)
                     ForEach(SocialDebriefMood.allCases) { mood in
                         Text(mood.displayName).tag(Optional(mood))
                     }
                 }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var optionalSectionBody: some View {
-        switch draft.templateKind {
-        case .workBlock:
-            workOptionalFields
-        case .meeting:
-            meetingOptionalFields
-        case .social:
-            socialOptionalFields
-        }
-    }
-
-    private var workOptionalFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("What got in the way?")
-                .font(.subheadline.weight(.semibold))
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], alignment: .leading, spacing: 8) {
-                ForEach(WorkBlockBlocker.allCases) { blocker in
-                    Button {
-                        if draft.workBlockers.contains(blocker) {
-                            draft.workBlockers.remove(blocker)
-                        } else {
-                            draft.workBlockers.insert(blocker)
-                        }
-                    } label: {
-                        Text(blocker.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                draft.workBlockers.contains(blocker)
-                                    ? Color.accentColor.opacity(0.25)
-                                    : Color.secondary.opacity(0.16),
-                                in: Capsule()
-                            )
+                TextField("Who was there?", text: $draft.socialWhoWasThere, axis: .vertical)
+                TextField("What did you learn?", text: $draft.socialLearnedAboutSomeone, axis: .vertical)
+                TextField("What did you promise?", text: $draft.socialPromised, axis: .vertical)
+                TextField("Anything different next time?", text: $draft.socialDifferentNextTime, axis: .vertical)
+                Picker("Nourishment", selection: $draft.socialNourishment) {
+                    Text("Not set").tag(Optional<SocialDebriefNourishment>.none)
+                    ForEach(SocialDebriefNourishment.allCases) { nourishment in
+                        Text(nourishment.displayName).tag(Optional(nourishment))
                     }
-                    .buttonStyle(.plain)
                 }
             }
 
-            Picker("Was the block length right?", selection: $draft.workBlockLengthFit) {
-                Text("Not set").tag(Optional<WorkBlockLengthFit>.none)
-                ForEach(WorkBlockLengthFit.allCases) { value in
-                    Text(value.displayName).tag(Optional(value))
-                }
-            }
-
-            DebriefRatingPicker(title: "Energy before", selection: $draft.workEnergyBeforeRating)
-            DebriefRatingPicker(title: "Energy after", selection: $draft.workEnergyAfterRating)
-            DebriefRatingPicker(title: "Focus quality", selection: $draft.workFocusQualityRating)
-
-            TextField("Next concrete step", text: $draft.workNextStep, axis: .vertical)
-        }
-    }
-
-    private var meetingOptionalFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Decisions made", text: $draft.meetingDecisions, axis: .vertical)
-            TextField("Open questions", text: $draft.meetingOpenQuestions, axis: .vertical)
-            TextField("Deadlines mentioned", text: $draft.meetingDeadlines, axis: .vertical)
-            DebriefRatingPicker(title: "Was I prepared enough?", selection: $draft.meetingPreparednessRating)
-            TextField("People involved", text: $draft.meetingPeopleInvolved, axis: .vertical)
-            TextField("Anything to remember before the next meeting?", text: $draft.meetingRememberBeforeNext, axis: .vertical)
-        }
-    }
-
-    private var socialOptionalFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Who was there?", text: $draft.socialWhoWasThere, axis: .vertical)
-            TextField("Anything I learned about someone?", text: $draft.socialLearnedAboutSomeone, axis: .vertical)
-            TextField("Anything I promised?", text: $draft.socialPromised, axis: .vertical)
-            TextField("Anything I want to do differently next time?", text: $draft.socialDifferentNextTime, axis: .vertical)
-            Picker("Did this feel nourishing or obligatory?", selection: $draft.socialNourishment) {
-                Text("Not set").tag(Optional<SocialDebriefNourishment>.none)
-                ForEach(SocialDebriefNourishment.allCases) { value in
-                    Text(value.displayName).tag(Optional(value))
-                }
-            }
-        }
-    }
-
-    private func addCaptureLine() {
-        guard let cleanedTitle = CaptureItem.cleanedTitle(from: captureInput) else {
-            return
-        }
-
-        draft.captureLines.append(cleanedTitle)
-        captureInput = ""
-    }
-
-    private func completeDebrief() {
-        isSaving = true
-        defer { isSaving = false }
-
-        do {
-            try onComplete(draft)
-            dismiss()
-        } catch {
-            errorMessage = "Unable to complete Debrief: \(error.localizedDescription)"
-        }
-    }
-
-    private func skipDebrief() {
-        isSaving = true
-        defer { isSaving = false }
-
-        do {
-            try onSkip()
-            dismiss()
-        } catch {
-            errorMessage = "Unable to skip Debrief: \(error.localizedDescription)"
+        case .generic, .pianoPractice, .jamSession, .viceSession:
+            EmptyView()
         }
     }
 }
@@ -741,6 +702,44 @@ private struct DebriefRatingPicker: View {
             Text("Not set").tag(Optional<Int>.none)
             ForEach(1...5, id: \.self) { value in
                 Text("\(value)").tag(Optional(value))
+            }
+        }
+    }
+}
+
+private struct TagSelectionGrid<Tag: CaseIterable & Hashable & Identifiable & Sendable>: View where Tag.AllCases: RandomAccessCollection {
+    let title: String
+    let allCases: Tag.AllCases
+    let displayName: (Tag) -> String
+    @Binding var selection: Set<Tag>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(Array(allCases), id: \.self) { value in
+                    Button {
+                        if selection.contains(value) {
+                            selection.remove(value)
+                        } else {
+                            selection.insert(value)
+                        }
+                    } label: {
+                        Text(displayName(value))
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                selection.contains(value)
+                                    ? Color.accentColor.opacity(0.2)
+                                    : Color.secondary.opacity(0.12),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
@@ -765,7 +764,7 @@ private struct DebriefTaskOutcomeCard: View {
 
                 Spacer()
 
-                Toggle("Mark task complete", isOn: $taskOutcomeDraft.didUpdateTaskStatus)
+                Toggle("Update task", isOn: $taskOutcomeDraft.didUpdateTaskStatus)
                     .disabled(taskOutcomeDraft.outcome != .completed)
                     .opacity(taskOutcomeDraft.outcome == .completed ? 1 : 0.45)
             }
@@ -783,19 +782,19 @@ private struct DebriefTaskOutcomeCard: View {
                 }
             }
 
-            TextField(
-                taskOutcomeDraft.notePlaceholder,
-                text: $taskOutcomeDraft.note,
-                axis: .vertical
-            )
+            TextField(taskOutcomeDraft.notePlaceholder, text: $taskOutcomeDraft.note, axis: .vertical)
         }
         .padding(12)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
-struct DebriefDraft {
+struct DebriefDraft: Equatable, Sendable {
     var templateKind: DebriefTemplateKind
+    var quickOutcome: DebriefQuickOutcome?
+    var quickNote: String
+    var detailedResponses: [DebriefPromptResponse]
+    var captureLines: [String]
 
     var workPlannedOutcome: WorkBlockPlannedOutcome?
     var workProductivityRating: Int?
@@ -827,7 +826,109 @@ struct DebriefDraft {
     var socialNourishment: SocialDebriefNourishment?
 
     var taskOutcomeDrafts: [DebriefTaskOutcomeDraft]
-    var captureLines: [String]
+
+    static let placeholder = DebriefDraft(
+        templateKind: .generic,
+        quickOutcome: nil,
+        quickNote: "",
+        detailedResponses: [],
+        captureLines: [],
+        workPlannedOutcome: nil,
+        workProductivityRating: nil,
+        workWhatHappened: "",
+        workBlockers: [],
+        workBlockLengthFit: nil,
+        workEnergyBeforeRating: nil,
+        workEnergyAfterRating: nil,
+        workFocusQualityRating: nil,
+        workNextStep: "",
+        meetingOutcomes: "",
+        meetingFollowUps: "",
+        meetingUsefulnessRating: nil,
+        meetingDecisions: "",
+        meetingOpenQuestions: "",
+        meetingDeadlines: "",
+        meetingPreparednessRating: nil,
+        meetingPeopleInvolved: "",
+        meetingRememberBeforeNext: "",
+        socialWorthRemembering: "",
+        socialFollowUp: "",
+        socialMood: nil,
+        socialWhoWasThere: "",
+        socialLearnedAboutSomeone: "",
+        socialPromised: "",
+        socialDifferentNextTime: "",
+        socialNourishment: nil,
+        taskOutcomeDrafts: []
+    )
+
+    init(
+        templateKind: DebriefTemplateKind,
+        quickOutcome: DebriefQuickOutcome?,
+        quickNote: String,
+        detailedResponses: [DebriefPromptResponse],
+        captureLines: [String],
+        workPlannedOutcome: WorkBlockPlannedOutcome?,
+        workProductivityRating: Int?,
+        workWhatHappened: String,
+        workBlockers: Set<WorkBlockBlocker>,
+        workBlockLengthFit: WorkBlockLengthFit?,
+        workEnergyBeforeRating: Int?,
+        workEnergyAfterRating: Int?,
+        workFocusQualityRating: Int?,
+        workNextStep: String,
+        meetingOutcomes: String,
+        meetingFollowUps: String,
+        meetingUsefulnessRating: Int?,
+        meetingDecisions: String,
+        meetingOpenQuestions: String,
+        meetingDeadlines: String,
+        meetingPreparednessRating: Int?,
+        meetingPeopleInvolved: String,
+        meetingRememberBeforeNext: String,
+        socialWorthRemembering: String,
+        socialFollowUp: String,
+        socialMood: SocialDebriefMood?,
+        socialWhoWasThere: String,
+        socialLearnedAboutSomeone: String,
+        socialPromised: String,
+        socialDifferentNextTime: String,
+        socialNourishment: SocialDebriefNourishment?,
+        taskOutcomeDrafts: [DebriefTaskOutcomeDraft]
+    ) {
+        self.templateKind = templateKind
+        self.quickOutcome = quickOutcome
+        self.quickNote = quickNote
+        self.detailedResponses = detailedResponses
+        self.captureLines = captureLines
+        self.workPlannedOutcome = workPlannedOutcome
+        self.workProductivityRating = workProductivityRating
+        self.workWhatHappened = workWhatHappened
+        self.workBlockers = workBlockers
+        self.workBlockLengthFit = workBlockLengthFit
+        self.workEnergyBeforeRating = workEnergyBeforeRating
+        self.workEnergyAfterRating = workEnergyAfterRating
+        self.workFocusQualityRating = workFocusQualityRating
+        self.workNextStep = workNextStep
+        self.meetingOutcomes = meetingOutcomes
+        self.meetingFollowUps = meetingFollowUps
+        self.meetingUsefulnessRating = meetingUsefulnessRating
+        self.meetingDecisions = meetingDecisions
+        self.meetingOpenQuestions = meetingOpenQuestions
+        self.meetingDeadlines = meetingDeadlines
+        self.meetingPreparednessRating = meetingPreparednessRating
+        self.meetingPeopleInvolved = meetingPeopleInvolved
+        self.meetingRememberBeforeNext = meetingRememberBeforeNext
+        self.socialWorthRemembering = socialWorthRemembering
+        self.socialFollowUp = socialFollowUp
+        self.socialMood = socialMood
+        self.socialWhoWasThere = socialWhoWasThere
+        self.socialLearnedAboutSomeone = socialLearnedAboutSomeone
+        self.socialPromised = socialPromised
+        self.socialDifferentNextTime = socialDifferentNextTime
+        self.socialNourishment = socialNourishment
+        self.taskOutcomeDrafts = taskOutcomeDrafts
+    }
 
     init(
         candidate: CalendarDebriefCandidate,
@@ -836,6 +937,12 @@ struct DebriefDraft {
         selectedTasks: [MyTask] = []
     ) {
         templateKind = existingDebrief?.templateKind ?? candidate.suggestedTemplate
+        quickOutcome = existingDebrief?.quickOutcome
+        quickNote = existingDebrief?.quickNote ?? ""
+        detailedResponses = existingDebrief?.detailedResponses.isEmpty == false
+            ? existingDebrief!.detailedResponses
+            : Self.responses(for: existingDebrief?.templateKind ?? candidate.suggestedTemplate)
+        captureLines = []
 
         workPlannedOutcome = existingDebrief?.workPlannedOutcome
         workProductivityRating = existingDebrief?.workProductivityRating
@@ -871,7 +978,22 @@ struct DebriefDraft {
             selectedTasks: selectedTasks,
             existingDebrief: existingDebrief
         )
-        captureLines = []
+    }
+
+    var templateDefinition: DebriefTemplateDefinition {
+        DebriefTemplates.definition(for: templateKind)
+    }
+
+    mutating func rebuildDetailedResponses() {
+        let template = templateDefinition
+        let responseLookup = Dictionary(uniqueKeysWithValues: detailedResponses.map { ($0.id, $0) })
+        detailedResponses = template.detailedPrompts.map { prompt in
+            if let response = responseLookup[prompt.id] {
+                return response
+            }
+
+            return DebriefPromptResponse(id: prompt.id, prompt: prompt.prompt, response: "")
+        }
     }
 
     func makeDebriefRecord(
@@ -885,6 +1007,9 @@ struct DebriefDraft {
     ) -> CalendarDebriefRecord {
         CalendarDebriefRecord(
             id: existingDebrief?.id ?? UUID(),
+            sourceType: candidate.sourceType,
+            sourceID: candidate.sourceID,
+            sourceContext: candidate.sourceContext,
             eventKey: candidate.eventKey,
             eventIdentifier: candidate.eventIdentifier,
             calendarIdentifier: candidate.calendarIdentifier,
@@ -898,7 +1023,10 @@ struct DebriefDraft {
             completedAt: completedAt,
             status: status,
             noDebriefNeeded: noDebriefNeeded,
+            quickOutcome: quickOutcome,
+            quickNote: quickNote,
             essentialNote: essentialNote,
+            detailedResponses: detailedResponses,
             createdCaptureIDs: (existingDebrief?.createdCaptureIDs ?? []) + captureIDs,
             workPlannedOutcome: workPlannedOutcome,
             workProductivityRating: workProductivityRating,
@@ -933,11 +1061,19 @@ struct DebriefDraft {
     private var essentialNote: String? {
         switch templateKind {
         case .workBlock:
-            return workWhatHappened
+            return workWhatHappened.isEmpty ? quickNote : workWhatHappened
         case .meeting:
-            return meetingOutcomes
+            return meetingOutcomes.isEmpty ? quickNote : meetingOutcomes
         case .social:
-            return socialWorthRemembering
+            return socialWorthRemembering.isEmpty ? quickNote : socialWorthRemembering
+        case .generic, .pianoPractice, .jamSession, .viceSession:
+            return quickNote
+        }
+    }
+
+    private static func responses(for templateKind: DebriefTemplateKind) -> [DebriefPromptResponse] {
+        DebriefTemplates.definition(for: templateKind).detailedPrompts.map { prompt in
+            DebriefPromptResponse(id: prompt.id, prompt: prompt.prompt, response: "")
         }
     }
 
@@ -990,7 +1126,7 @@ struct DebriefDraft {
     }
 }
 
-private struct DebriefTaskOutcomeDraft: Identifiable, Equatable, Sendable {
+struct DebriefTaskOutcomeDraft: Identifiable, Equatable, Sendable {
     let taskID: UUID
     var taskTitleSnapshot: String
     var outcome: DebriefTaskOutcomeStatus
@@ -1015,5 +1151,11 @@ private struct DebriefTaskOutcomeDraft: Identifiable, Equatable, Sendable {
         case .notTouched:
             return "What happened instead?"
         }
+    }
+}
+
+private extension CalendarDebriefCandidate {
+    var timeRangeText: String {
+        "\(start.formatted(date: .abbreviated, time: .shortened)) - \(end.formatted(date: .omitted, time: .shortened))"
     }
 }

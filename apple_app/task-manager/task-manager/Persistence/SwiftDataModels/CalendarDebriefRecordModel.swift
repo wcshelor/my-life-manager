@@ -1,24 +1,31 @@
 import Foundation
 import SwiftData
 
+// Declaration defaults preserve lightweight migration for existing stores.
 @Model
 final class CalendarDebriefRecordModel {
-    var id: UUID = UUID()
+    var id: UUID = Foundation.UUID()
+    var sourceTypeRawValue: String = "calendarBlock"
+    var sourceID: String?
+    var sourceContext: String?
     var eventKey: String = ""
     var eventIdentifier: String?
     var calendarIdentifier: String?
     var calendarTitleSnapshot: String = ""
     var titleSnapshot: String = ""
-    var startDateSnapshot: Date = .distantPast
-    var endDateSnapshot: Date = .distantPast
-    var templateKindRawValue: String = DebriefTemplateKind.workBlock.rawValue
-    var createdAt: Date = .distantPast
-    var updatedAt: Date = .distantPast
+    var startDateSnapshot: Date = Foundation.Date.distantPast
+    var endDateSnapshot: Date = Foundation.Date.distantPast
+    var templateKindRawValue: String = "workBlock"
+    var createdAt: Date = Foundation.Date.distantPast
+    var updatedAt: Date = Foundation.Date.distantPast
     var completedAt: Date?
-    var statusRawValue: String = CalendarDebriefStatus.pending.rawValue
+    var statusRawValue: String = "pending"
     var noDebriefNeeded: Bool = false
+    var quickOutcomeRawValue: String?
+    var quickNote: String?
     var essentialNote: String?
-    var createdCaptureIDsData: Data = Data()
+    var detailedResponsesData: Data = Foundation.Data()
+    var createdCaptureIDsData: Data = Foundation.Data()
 
     var workPlannedOutcomeRawValue: String?
     var workProductivityRating: Int?
@@ -48,7 +55,7 @@ final class CalendarDebriefRecordModel {
     var socialPromised: String?
     var socialDifferentNextTime: String?
     var socialNourishmentRawValue: String?
-    var taskOutcomesData: Data = Data()
+    var taskOutcomesData: Data = Foundation.Data()
 
     init(debrief: CalendarDebriefRecord) {
         update(from: debrief)
@@ -57,6 +64,9 @@ final class CalendarDebriefRecordModel {
     var debrief: CalendarDebriefRecord {
         CalendarDebriefRecord(
             id: id,
+            sourceType: DebriefSourceType(rawValue: sourceTypeRawValue) ?? .calendarBlock,
+            sourceID: sourceID,
+            sourceContext: sourceContext,
             eventKey: eventKey,
             eventIdentifier: eventIdentifier,
             calendarIdentifier: calendarIdentifier,
@@ -70,7 +80,10 @@ final class CalendarDebriefRecordModel {
             completedAt: completedAt,
             status: CalendarDebriefStatus(rawValue: statusRawValue) ?? .pending,
             noDebriefNeeded: noDebriefNeeded,
+            quickOutcome: quickOutcomeRawValue.flatMap(DebriefQuickOutcome.init(rawValue:)),
+            quickNote: quickNote,
             essentialNote: essentialNote,
+            detailedResponses: decodedDetailedResponses,
             createdCaptureIDs: decodedCaptureIDs,
             workPlannedOutcome: workPlannedOutcomeRawValue.flatMap(WorkBlockPlannedOutcome.init(rawValue:)),
             workProductivityRating: workProductivityRating,
@@ -104,6 +117,9 @@ final class CalendarDebriefRecordModel {
 
     func update(from debrief: CalendarDebriefRecord) {
         id = debrief.id
+        sourceTypeRawValue = debrief.sourceType.rawValue
+        sourceID = debrief.sourceID
+        sourceContext = debrief.sourceContext
         eventKey = debrief.eventKey
         eventIdentifier = debrief.eventIdentifier
         calendarIdentifier = debrief.calendarIdentifier
@@ -117,7 +133,10 @@ final class CalendarDebriefRecordModel {
         completedAt = debrief.completedAt
         statusRawValue = debrief.status.rawValue
         noDebriefNeeded = debrief.noDebriefNeeded
+        quickOutcomeRawValue = debrief.quickOutcome?.rawValue
+        quickNote = debrief.quickNote
         essentialNote = debrief.essentialNote
+        detailedResponsesData = (try? JSONEncoder().encode(debrief.detailedResponses)) ?? Data()
         createdCaptureIDsData = (try? JSONEncoder().encode(debrief.createdCaptureIDs)) ?? Data()
 
         workPlannedOutcomeRawValue = debrief.workPlannedOutcome?.rawValue
@@ -153,6 +172,10 @@ final class CalendarDebriefRecordModel {
 
     private var decodedCaptureIDs: [UUID] {
         (try? JSONDecoder().decode([UUID].self, from: createdCaptureIDsData)) ?? []
+    }
+
+    private var decodedDetailedResponses: [DebriefPromptResponse] {
+        (try? JSONDecoder().decode([DebriefPromptResponse].self, from: detailedResponsesData)) ?? []
     }
 
     private var decodedWorkBlockers: [WorkBlockBlocker] {

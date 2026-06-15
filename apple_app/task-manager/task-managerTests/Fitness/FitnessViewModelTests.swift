@@ -106,6 +106,32 @@ struct FitnessViewModelTests {
         viewModel.deleteExerciseSession(withID: session.id)
         #expect(viewModel.recentSessions(for: exercise.id).isEmpty)
     }
+
+    @Test func fitnessViewModelSeedsDraftsFromLatestSession() {
+        let exercise = FitnessExercise(
+            name: "Bench",
+            tag: .push,
+            trackingStyle: .strengthSets,
+            weightUnit: .pounds
+        )
+        let latestSession = ExerciseSession(
+            exerciseID: exercise.id,
+            strengthSets: [StrengthSet(reps: 5, weight: 185), StrengthSet(reps: 3, weight: 205)]
+        )
+        let repository = FakeFitnessRepository(
+            exercises: [exercise],
+            sessions: [latestSession]
+        )
+        let viewModel = FitnessViewModel(fitnessRepository: repository)
+
+        viewModel.load()
+
+        let draft = viewModel.draftSession(for: exercise)
+
+        #expect(draft.exerciseID == exercise.id)
+        #expect(draft.strengthSets == latestSession.strengthSets)
+        #expect(draft.id != latestSession.id)
+    }
 }
 
 @MainActor

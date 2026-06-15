@@ -384,6 +384,20 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
         return parts.isEmpty ? "No metrics" : parts.joined(separator: " · ")
     }
 
+    func draftCopy(for exercise: FitnessExercise, performedAt: Date = .now) -> ExerciseSession {
+        ExerciseSession(
+            exerciseID: exercise.id,
+            performedAt: performedAt,
+            strengthSets: exercise.trackingStyle == .strengthSets ? strengthSets : [],
+            durationMinutes: exercise.selectableMetricFields.contains(.durationMinutes) ? durationMinutes : nil,
+            difficultyLevel: exercise.selectableMetricFields.contains(.difficultyLevel) ? difficultyLevel : nil,
+            averageRPM: exercise.selectableMetricFields.contains(.averageRPM) ? averageRPM : nil,
+            distance: exercise.selectableMetricFields.contains(.distance) ? distance : nil,
+            createdAt: .now,
+            updatedAt: .now
+        )
+    }
+
     private static func numberText(_ value: Double) -> String {
         if value.rounded() == value {
             return String(Int(value))

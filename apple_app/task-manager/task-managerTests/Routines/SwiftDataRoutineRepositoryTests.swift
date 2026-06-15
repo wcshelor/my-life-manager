@@ -39,6 +39,33 @@ struct SwiftDataRoutineRepositoryTests {
         #expect(try repository.routine(withID: routine.id) == routine)
     }
 
+    @Test @MainActor func routineRepositoryUpdatesWeekdaysInPlace() throws {
+        let repository = try makeRepository()
+        let item = RoutineItem(title: "Plan", position: 0)
+        let routine = Routine(
+            name: "Morning",
+            activeWeekdays: [.monday],
+            items: [item]
+        )
+        let editedRoutine = Routine(
+            id: routine.id,
+            name: routine.name,
+            notes: routine.notes,
+            activeWeekdays: [.tuesday, .thursday],
+            items: routine.items,
+            stepLinks: routine.stepLinks,
+            isArchived: routine.isArchived,
+            createdAt: routine.createdAt,
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        try repository.saveRoutine(routine, replacingRoutineWithID: nil)
+        try repository.saveRoutine(editedRoutine, replacingRoutineWithID: routine.id)
+
+        let reloaded = try #require(repository.routine(withID: routine.id))
+        #expect(reloaded.activeWeekdays == [.tuesday, .thursday])
+    }
+
     @Test @MainActor func routineRepositoryLoadsLegacyStepLinkPayloadWithoutModuleWidgetKind() throws {
         let container = try ModelContainerFactory.makeInMemoryContainer()
         let repository = SwiftDataRoutineRepository(modelContainer: container)

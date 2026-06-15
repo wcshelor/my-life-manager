@@ -6,6 +6,11 @@ protocol HealthRepository {
     func fetchSleepCheckIn(on date: Date, calendar: Calendar) throws -> SleepCheckIn?
     func saveSleepCheckIn(_ checkIn: SleepCheckIn, replacingCheckInWithID originalID: UUID?) throws
 
+    func searchFoodCatalogItems(matching query: String, limit: Int) throws -> [FoodCatalogItem]
+    func fetchCustomFoodCatalogItems() throws -> [FoodCatalogItem]
+    func saveFoodCatalogItem(_ item: FoodCatalogItem) throws
+    func deleteFoodCatalogItem(withID id: UUID) throws
+
     func fetchMealLogs(on date: Date, calendar: Calendar) throws -> [MealLog]
     func fetchRecentMealLogs(limit: Int) throws -> [MealLog]
     func mealLog(withID id: UUID) throws -> MealLog?

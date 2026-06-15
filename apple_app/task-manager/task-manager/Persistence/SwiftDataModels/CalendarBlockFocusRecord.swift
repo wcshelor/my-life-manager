@@ -1,23 +1,24 @@
 import Foundation
 import SwiftData
 
+// Declaration defaults preserve lightweight migration for existing stores.
 @Model
 final class CalendarBlockFocusRecord {
-    var id: UUID = UUID()
+    var id: UUID = Foundation.UUID()
     var eventKey: String = ""
     var eventIdentifier: String = ""
     var calendarIdentifier: String = ""
     var titleSnapshot: String = ""
-    var startDateSnapshot: Date = .distantPast
-    var endDateSnapshot: Date = .distantPast
+    var startDateSnapshot: Date = Foundation.Date.distantPast
+    var endDateSnapshot: Date = Foundation.Date.distantPast
     var linkedProjectID: UUID?
-    var selectedTaskIDsData: Data = Data()
+    var selectedTaskIDsData: Data = Foundation.Data()
     var intentionNote: String?
     var preferredDebriefTemplateKindRawValue: String?
     var isProjectLinkUserConfirmed: Bool = false
     var isNoFocusNeeded: Bool = false
-    var createdAt: Date = .distantPast
-    var updatedAt: Date = .distantPast
+    var createdAt: Date = Foundation.Date.distantPast
+    var updatedAt: Date = Foundation.Date.distantPast
 
     init(focus: CalendarBlockFocus) {
         update(from: focus)

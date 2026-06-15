@@ -15,4 +15,8 @@ protocol ViceRepository {
     ) throws -> [ViceLog]
     func saveViceLog(_ log: ViceLog) throws
     func deleteViceLog(withID id: UUID) throws
+
+    func fetchViceSessions() throws -> [ViceSession]
+    func saveViceSession(_ session: ViceSession) throws
+    func deleteViceSession(withID id: UUID) throws
 }

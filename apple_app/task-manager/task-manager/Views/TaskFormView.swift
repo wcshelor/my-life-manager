@@ -47,6 +47,7 @@ struct TaskFormView: View {
     @FocusState private var isTitleFieldFocused: Bool
     @State private var formData: MyTaskFormData
     @State private var isShowingDeleteConfirmation = false
+    @State private var showsExactDueTime = false
 
     let mode: Mode
     let projects: [Project]
@@ -68,6 +69,7 @@ struct TaskFormView: View {
         self.onSave = onSave
         self.onDelete = onDelete
         _formData = State(initialValue: initialFormData)
+        _showsExactDueTime = State(initialValue: initialFormData.hasDueDate && initialFormData.dueDate.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 86_400) != 0)
     }
 
     private var validationMessage: String? {
@@ -122,11 +124,24 @@ struct TaskFormView: View {
                             DatePicker(
                                 "Due Date",
                                 selection: $formData.dueDate,
-                                displayedComponents: [.date, .hourAndMinute]
+                                displayedComponents: [.date]
                             )
+
+                            DisclosureGroup(isExpanded: $showsExactDueTime) {
+                                DatePicker(
+                                    "Exact Due Time",
+                                    selection: $formData.dueDate,
+                                    displayedComponents: [.hourAndMinute]
+                                )
+                                .labelsHidden()
+                            } label: {
+                                Text(showsExactDueTime ? "Set exact time" : "Add time")
+                                    .font(.subheadline.weight(.medium))
+                            }
 
                             Button("Remove Due Date", role: .destructive) {
                                 formData.hasDueDate = false
+                                showsExactDueTime = false
                             }
                             .font(.subheadline.weight(.medium))
                         }
@@ -243,7 +258,12 @@ struct TaskFormView: View {
     }
 
     private func saveTask() {
-        guard let task = formData.makeTask() else {
+        var savingFormData = formData
+        if let normalizedDueDate = savingFormData.normalizedDueDate(keepingExactTime: showsExactDueTime) {
+            savingFormData.dueDate = normalizedDueDate
+        }
+
+        guard let task = savingFormData.makeTask() else {
             return
         }
 

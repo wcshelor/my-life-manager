@@ -111,7 +111,7 @@ struct FitnessTrackerView: View {
                         .buttonStyle(.plain)
                         .swipeActions {
                             Button {
-                                presentedSheet = .session(exercise, nil)
+                                presentedSheet = .session(exercise, viewModel.draftSession(for: exercise), true)
                             } label: {
                                 Label("Log", systemImage: "plus.circle")
                             }
@@ -165,15 +165,16 @@ struct FitnessTrackerView: View {
                         onChange()
                         presentedSheet = nil
                     }
-                case .session(let exercise, let session):
+                case .session(let exercise, let session, let isDraft):
                     ExerciseSessionFormView(
                         exercise: exercise,
                         initialSession: session,
-                        lastSession: viewModel.latestSession(for: exercise.id)
+                        lastSession: viewModel.latestSession(for: exercise.id),
+                        isDraft: isDraft
                     ) { savedSession in
                         viewModel.saveExerciseSession(
                             savedSession,
-                            replacingExerciseSessionWithID: session?.id
+                            replacingExerciseSessionWithID: isDraft ? nil : session?.id
                         )
                         onChange()
                         presentedSheet = nil
@@ -189,6 +190,9 @@ struct FitnessTrackerView: View {
                 },
                 onSelectExercise: { exercise in
                     selectedExercise = exercise
+                },
+                onLogExercise: { exercise in
+                    presentedSheet = .session(exercise, viewModel.draftSession(for: exercise), true)
                 }
             )
         }
@@ -201,10 +205,10 @@ struct FitnessTrackerView: View {
                     presentedSheet = .exercise(exercise)
                 },
                 onLogSession: {
-                    presentedSheet = .session(exercise, nil)
+                    presentedSheet = .session(exercise, viewModel.draftSession(for: exercise), true)
                 },
                 onEditSession: { session in
-                    presentedSheet = .session(exercise, session)
+                    presentedSheet = .session(exercise, session, false)
                 },
                 onDeleteSession: { session in
                     viewModel.deleteExerciseSession(withID: session.id)
@@ -218,7 +222,7 @@ struct FitnessTrackerView: View {
 private enum FitnessSheet: Identifiable {
     case exercise(FitnessExercise?)
     case template(WorkoutTemplate?)
-    case session(FitnessExercise, ExerciseSession?)
+    case session(FitnessExercise, ExerciseSession?, Bool)
 
     var id: String {
         switch self {
@@ -226,8 +230,8 @@ private enum FitnessSheet: Identifiable {
             return "exercise-\(exercise?.id.uuidString ?? "new")"
         case .template(let template):
             return "template-\(template?.id.uuidString ?? "new")"
-        case .session(let exercise, let session):
-            return "session-\(exercise.id.uuidString)-\(session?.id.uuidString ?? "new")"
+        case .session(let exercise, let session, let isDraft):
+            return "session-\(exercise.id.uuidString)-\(session?.id.uuidString ?? "new")-\(isDraft)"
         }
     }
 }
@@ -301,40 +305,16 @@ private struct WorkoutTemplateDetailView: View {
     let summary: FitnessTemplateRowSummary
     let onEdit: () -> Void
     let onSelectExercise: (FitnessExercise) -> Void
+    let onLogExercise: (FitnessExercise) -> Void
 
     var body: some View {
         List {
             ForEach(summary.rows) { row in
-                Button {
-                    onSelectExercise(row.exercise)
-                } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text(row.exercise.name)
-                                .font(.body.weight(.semibold))
-                            Spacer()
-                            if row.loggedToday {
-                                Text("Logged today")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Text("\(row.exercise.tag.displayName) · \(row.exercise.trackingStyle.displayName)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(row.latestSession.map { "Last: \($0.summaryText)" } ?? "No sessions yet")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        ForEach(Array(row.priorSessions.enumerated()), id: \.element.id) { _, session in
-                            Text(session.summaryText)
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .buttonStyle(.plain)
+                WorkoutTemplateExerciseRowView(
+                    row: row,
+                    onSelectExercise: onSelectExercise,
+                    onLogExercise: onLogExercise
+                )
             }
         }
         .navigationTitle(summary.template.name)
@@ -343,6 +323,57 @@ private struct WorkoutTemplateDetailView: View {
                 Button("Edit", action: onEdit)
             }
         }
+    }
+}
+
+private struct WorkoutTemplateExerciseRowView: View {
+    let row: FitnessTemplateExerciseRow
+    let onSelectExercise: (FitnessExercise) -> Void
+    let onLogExercise: (FitnessExercise) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                onSelectExercise(row.exercise)
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(row.exercise.name)
+                            .font(.body.weight(.semibold))
+                        Spacer()
+                        if row.loggedToday {
+                            Text("Logged today")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("\(row.exercise.tag.displayName) · \(row.exercise.trackingStyle.displayName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(row.latestSession.map { "Last: \($0.summaryText)" } ?? "No sessions yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(row.priorSessions) { session in
+                        Text(session.summaryText)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                onLogExercise(row.exercise)
+            } label: {
+                Label("Log", systemImage: "plus.circle")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Color.accentColor)
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -674,6 +705,7 @@ private struct ExerciseSessionFormView: View {
     let exercise: FitnessExercise
     let initialSession: ExerciseSession?
     let lastSession: ExerciseSession?
+    let isDraft: Bool
     let onSave: (ExerciseSession) -> Void
 
     @State private var strengthSets: [StrengthSet]
@@ -686,11 +718,13 @@ private struct ExerciseSessionFormView: View {
         exercise: FitnessExercise,
         initialSession: ExerciseSession?,
         lastSession: ExerciseSession?,
+        isDraft: Bool,
         onSave: @escaping (ExerciseSession) -> Void
     ) {
         self.exercise = exercise
         self.initialSession = initialSession
         self.lastSession = lastSession
+        self.isDraft = isDraft
         self.onSave = onSave
         _strengthSets = State(initialValue: initialSession?.strengthSets ?? [StrengthSet(reps: 0)])
         _durationMinutes = State(initialValue: initialSession?.durationMinutes ?? 0)
@@ -701,68 +735,11 @@ private struct ExerciseSessionFormView: View {
 
     var body: some View {
         Form {
-            if let lastSession {
-                Section("Last Session") {
-                    Text(lastSession.performedAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(lastSession.summaryText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if exercise.trackingStyle == .strengthSets {
-                Section("Sets") {
-                    ForEach(strengthSets.indices, id: \.self) { index in
-                        HStack {
-                            Stepper("Reps \(strengthSets[index].reps)", value: Binding(
-                                get: { strengthSets[index].reps },
-                                set: { strengthSets[index].reps = $0 }
-                            ), in: 0...100)
-                            TextField(
-                                exercise.weightUnit?.displayName ?? "Weight",
-                                value: Binding(
-                                    get: { strengthSets[index].weight ?? 0 },
-                                    set: { strengthSets[index].weight = $0 == 0 ? nil : $0 }
-                                ),
-                                format: .number
-                            )
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                        }
-                    }
-                    .onDelete { offsets in
-                        strengthSets.remove(atOffsets: offsets)
-                    }
-
-                    Button("Add Set") {
-                        strengthSets.append(StrengthSet(reps: 0))
-                    }
-                }
-            } else {
-                Section("Metrics") {
-                    if exercise.selectableMetricFields.contains(.durationMinutes) {
-                        Stepper("Duration \(durationMinutes)m", value: $durationMinutes, in: 0...600)
-                    }
-                    if exercise.selectableMetricFields.contains(.difficultyLevel) {
-                        Stepper("Difficulty \(difficultyLevel)", value: $difficultyLevel, in: 1...10)
-                    }
-                    if exercise.selectableMetricFields.contains(.averageRPM) {
-                        Stepper("Average RPM \(averageRPM)", value: $averageRPM, in: 0...300)
-                    }
-                    if exercise.selectableMetricFields.contains(.distance) {
-                        TextField(
-                            "Distance (\(exercise.distanceUnit?.displayName ?? ""))",
-                            value: $distance,
-                            format: .number
-                        )
-                        .keyboardType(.decimalPad)
-                    }
-                }
-            }
+            draftSeedNoticeSection
+            lastSessionSection
+            sessionFieldsSection
         }
-        .navigationTitle(initialSession == nil ? "Log Session" : "Edit Session")
+        .navigationTitle(isDraft ? "Quick Log" : "Edit Session")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -781,6 +758,42 @@ private struct ExerciseSessionFormView: View {
         }
     }
 
+    @ViewBuilder
+    private var draftSeedNoticeSection: some View {
+        if isDraft, let lastSession {
+            SessionDraftNoticeView(lastSession: lastSession)
+                .listRowBackground(Color.secondary.opacity(0.08))
+        }
+    }
+
+    @ViewBuilder
+    private var lastSessionSection: some View {
+        if let lastSession {
+            SessionSummarySection(lastSession: lastSession)
+        }
+    }
+
+    @ViewBuilder
+    private var sessionFieldsSection: some View {
+        if exercise.trackingStyle == .strengthSets {
+            StrengthSessionSection(
+                strengthSets: $strengthSets,
+                weightLabel: exercise.weightUnit?.displayName ?? "Weight",
+                isDraft: isDraft
+            )
+        } else {
+            MetricSessionSection(
+                selectableMetricFields: exercise.selectableMetricFields,
+                distanceLabel: exercise.distanceUnit?.displayName ?? "",
+                isDraft: isDraft,
+                durationMinutes: $durationMinutes,
+                difficultyLevel: $difficultyLevel,
+                averageRPM: $averageRPM,
+                distance: $distance
+            )
+        }
+    }
+
     private func makeSession() -> ExerciseSession {
         ExerciseSession(
             id: initialSession?.id ?? UUID(),
@@ -794,5 +807,154 @@ private struct ExerciseSessionFormView: View {
             createdAt: initialSession?.createdAt ?? .now,
             updatedAt: .now
         )
+    }
+}
+
+private struct SessionDraftNoticeView: View {
+    let lastSession: ExerciseSession
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Draft from last session", systemImage: "clock.arrow.circlepath")
+                    .font(.subheadline.weight(.semibold))
+                Text(lastSession.performedAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Values are prefilled from the most recent log for this exercise. Adjust anything before saving.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+private struct SessionSummarySection: View {
+    let lastSession: ExerciseSession
+
+    var body: some View {
+        Section("Last Session") {
+            Text(lastSession.performedAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(lastSession.summaryText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct StrengthSessionSection: View {
+    @Binding var strengthSets: [StrengthSet]
+
+    let weightLabel: String
+    let isDraft: Bool
+
+    var body: some View {
+        Section("Sets") {
+            ForEach(strengthSets.indices, id: \.self) { index in
+                StrengthSetRow(
+                    reps: Binding(
+                        get: { strengthSets[index].reps },
+                        set: { strengthSets[index].reps = $0 }
+                    ),
+                    weight: Binding(
+                        get: { strengthSets[index].weight ?? 0 },
+                        set: { strengthSets[index].weight = $0 == 0 ? nil : $0 }
+                    ),
+                    weightLabel: weightLabel,
+                    isDraft: isDraft
+                )
+            }
+            .onDelete { offsets in
+                strengthSets.remove(atOffsets: offsets)
+            }
+
+            Button("Add Set") {
+                strengthSets.append(StrengthSet(reps: 0))
+            }
+        }
+    }
+}
+
+private struct StrengthSetRow: View {
+    @Binding var reps: Int
+    @Binding var weight: Double
+
+    let weightLabel: String
+    let isDraft: Bool
+
+    var body: some View {
+        HStack {
+            Stepper(value: $reps, in: 0...100) {
+                Text("Reps \(reps)")
+                    .foregroundStyle(isDraft ? .secondary : .primary)
+            }
+            TextField(weightLabel, value: $weight, format: .number)
+                .foregroundStyle(isDraft ? .secondary : .primary)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private struct MetricSessionSection: View {
+    let selectableMetricFields: [SelectableMetricField]
+    let distanceLabel: String
+    let isDraft: Bool
+
+    @Binding var durationMinutes: Int
+    @Binding var difficultyLevel: Int
+    @Binding var averageRPM: Int
+    @Binding var distance: Double
+
+    var body: some View {
+        Section("Metrics") {
+            if selectableMetricFields.contains(.durationMinutes) {
+                MetricStepperRow(
+                    title: "Duration \(durationMinutes)m",
+                    value: $durationMinutes,
+                    range: 0...600,
+                    isDraft: isDraft
+                )
+            }
+            if selectableMetricFields.contains(.difficultyLevel) {
+                MetricStepperRow(
+                    title: "Difficulty \(difficultyLevel)",
+                    value: $difficultyLevel,
+                    range: 1...10,
+                    isDraft: isDraft
+                )
+            }
+            if selectableMetricFields.contains(.averageRPM) {
+                MetricStepperRow(
+                    title: "Average RPM \(averageRPM)",
+                    value: $averageRPM,
+                    range: 0...300,
+                    isDraft: isDraft
+                )
+            }
+            if selectableMetricFields.contains(.distance) {
+                TextField("Distance (\(distanceLabel))", value: $distance, format: .number)
+                    .foregroundStyle(isDraft ? .secondary : .primary)
+                    .keyboardType(.decimalPad)
+            }
+        }
+    }
+}
+
+private struct MetricStepperRow: View {
+    let title: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let isDraft: Bool
+
+    var body: some View {
+        Stepper(value: $value, in: range) {
+            Text(title)
+                .foregroundStyle(isDraft ? .secondary : .primary)
+        }
     }
 }

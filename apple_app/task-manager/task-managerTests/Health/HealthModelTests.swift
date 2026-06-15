@@ -33,13 +33,24 @@ struct HealthModelTests {
         let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
         let secondID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
         let base = Date(timeIntervalSince1970: 1_000)
+        let oats = FoodCatalogItem(
+            name: "Oatmeal",
+            servingDescription: "1 bowl",
+            nutritionPerServing: NutritionFacts(calories: 150, proteinGrams: 5, carbGrams: 27, sugarGrams: 1, fiberGrams: 4)
+        )
+        let berries = FoodCatalogItem(
+            name: "Blueberries",
+            servingDescription: "1 cup",
+            nutritionPerServing: NutritionFacts(calories: 85, proteinGrams: 1, carbGrams: 21, sugarGrams: 15, fiberGrams: 3.6)
+        )
         let older = MealLog(
             id: secondID,
             timestamp: base,
-            mealType: .lunch,
-            summary: "  Rice bowl  ",
-            tags: [.takeout, .protein, .takeout],
-            energyAfterRating: 9,
+            summary: "  ",
+            entries: [
+                MealEntry(food: oats),
+                MealEntry(food: berries, servings: 0.5)
+            ],
             notes: "  good  "
         )
         let newer = MealLog(
@@ -48,12 +59,39 @@ struct HealthModelTests {
             summary: "Smoothie"
         )
 
-        #expect(older.summary == "Rice bowl")
-        #expect(older.tags == [.takeout, .protein])
-        #expect(older.energyAfterRating == 5)
+        #expect(older.summary == "Oatmeal, Blueberries")
         #expect(older.notes == "good")
+        #expect(older.totalCalories == 192.5)
+        #expect(older.totalProteinGrams == 5.5)
+        #expect(older.totalCarbGrams == 37.5)
+        #expect(older.totalSugarGrams == 8.5)
+        #expect(((older.totalFiberGrams ?? 0) * 10).rounded() == 58)
         #expect(MealLog(newSummary: "  ") == nil)
         #expect([older, newer].sortedForHealthHistory().map(\.id) == [firstID, secondID])
+    }
+
+    @Test func foodCatalogItemAndMealEntryCleanValues() {
+        let customFood = FoodCatalogItem(
+            name: "  Carrots + Peas  ",
+            servingDescription: "  1 bowl  ",
+            nutritionPerServing: NutritionFacts(
+                calories: 110,
+                proteinGrams: 4.5,
+                carbGrams: 18,
+                sugarGrams: 8,
+                fiberGrams: 6,
+                sodiumMilligrams: -40
+            )
+        )
+        let entry = MealEntry(food: customFood, servings: -2, note: "  frozen mix  ")
+
+        #expect(customFood.name == "Carrots + Peas")
+        #expect(customFood.servingDescription == "1 bowl")
+        #expect(customFood.nutritionPerServing.sodiumMilligrams == 0)
+        #expect(entry.servings == 1)
+        #expect(entry.note == "frozen mix")
+        #expect(entry.totalNutrition.calories == 110)
+        #expect(entry.totalNutrition.fiberGrams == 6)
     }
 
     @Test func workoutLogClampsDurationAndSortsNewestFirst() {
@@ -148,5 +186,41 @@ struct HealthModelTests {
 
         #expect(summary.sleepPVT.current7Days.pvtDaysLogged == 1)
         #expect(summary.sleepPVT.current7Days.averagePVTMedianMilliseconds == 300)
+    }
+
+    @Test func nutritionTrendSummaryAggregatesMealEntryNutrition() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 18))!
+        let meal = MealLog(
+            timestamp: now,
+            entries: [
+                MealEntry(
+                    foodName: "Pork schnitzel",
+                    servings: 1,
+                    nutritionPerServing: NutritionFacts(calories: 320, proteinGrams: 24, carbGrams: 18, sugarGrams: 1, fiberGrams: 1)
+                ),
+                MealEntry(
+                    foodName: "Fried potatoes",
+                    servings: 1,
+                    nutritionPerServing: NutritionFacts(calories: 280, proteinGrams: 4, carbGrams: 32, sugarGrams: 1, fiberGrams: 3)
+                ),
+                MealEntry(
+                    foodName: "Carrots + peas",
+                    servings: 1,
+                    nutritionPerServing: NutritionFacts(calories: 110, proteinGrams: 5, carbGrams: 18, sugarGrams: 8, fiberGrams: 6)
+                )
+            ]
+        )
+
+        let summary = NutritionTrendSummary(mealLogs: [meal], now: now, calendar: calendar)
+
+        #expect(summary.current7Days.mealCount == 1)
+        #expect(summary.current7Days.mealEntryCount == 3)
+        #expect(summary.current7Days.totalCalories == 710)
+        #expect(summary.current7Days.totalProteinGrams == 33)
+        #expect(summary.current7Days.totalCarbGrams == 68)
+        #expect(summary.current7Days.totalSugarGrams == 10)
+        #expect(summary.current7Days.totalFiberGrams == 10)
     }
 }

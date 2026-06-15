@@ -1,6 +1,172 @@
 import Combine
 import Foundation
 
+protocol AppUpdateReminderTracking {
+    func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary?
+}
+
+nonisolated struct HomeAppUpdateReminderSummary: Equatable, Sendable {
+    static let suggestedRefreshIntervalInDays = 7
+
+    let appVersion: String
+    let buildNumber: String
+    let lastUpdatedAt: Date
+    let daysSinceUpdate: Int
+    let daysUntilSuggestedRefresh: Int
+
+    init(
+        appVersion: String,
+        buildNumber: String,
+        lastUpdatedAt: Date,
+        now: Date,
+        calendar: Calendar
+    ) {
+        self.appVersion = appVersion
+        self.buildNumber = buildNumber
+        self.lastUpdatedAt = lastUpdatedAt
+
+        let startOfUpdateDay = calendar.startOfDay(for: lastUpdatedAt)
+        let startOfNow = calendar.startOfDay(for: now)
+        let dayDifference = max(
+            0,
+            calendar.dateComponents([.day], from: startOfUpdateDay, to: startOfNow).day ?? 0
+        )
+        self.daysSinceUpdate = dayDifference
+        self.daysUntilSuggestedRefresh = max(0, Self.suggestedRefreshIntervalInDays - dayDifference)
+    }
+
+    var countdownLabel: String {
+        if daysUntilSuggestedRefresh == 0 {
+            return "Refresh now"
+        }
+
+        return "\(daysUntilSuggestedRefresh)d left"
+    }
+
+    var updatedLabel: String {
+        if daysSinceUpdate == 0 {
+            return "Updated today"
+        }
+
+        if daysSinceUpdate == 1 {
+            return "Updated 1 day ago"
+        }
+
+        return "Updated \(daysSinceUpdate)d ago"
+    }
+
+    var detail: String {
+        "\(updatedLabel) · build \(buildNumber)"
+    }
+
+    var hint: String {
+        if daysUntilSuggestedRefresh == 0 {
+            return "Reinstall from your Mac before the signed app ages out."
+        }
+
+        return "Plan to reinstall before the week runs out."
+    }
+}
+
+private struct NoopAppUpdateReminderTracker: AppUpdateReminderTracking {
+    func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
+        nil
+    }
+}
+
+struct LiveAppUpdateReminderTracker: AppUpdateReminderTracking {
+    private let store: any AppUpdateReminderStore
+    private let metadataProvider: any AppBuildMetadataProviding
+
+    init(
+        store: any AppUpdateReminderStore = UserDefaultsAppUpdateReminderStore(),
+        metadataProvider: any AppBuildMetadataProviding = BundleAppBuildMetadataProvider(bundle: .main)
+    ) {
+        self.store = store
+        self.metadataProvider = metadataProvider
+    }
+
+    func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
+        let appVersion = metadataProvider.appVersion
+        let buildNumber = metadataProvider.buildNumber
+        let record: AppUpdateReminderRecord
+
+        if let storedRecord = store.loadRecord(),
+           storedRecord.appVersion == appVersion,
+           storedRecord.buildNumber == buildNumber {
+            record = storedRecord
+        } else {
+            record = AppUpdateReminderRecord(
+                appVersion: appVersion,
+                buildNumber: buildNumber,
+                lastUpdatedAt: now
+            )
+            store.saveRecord(record)
+        }
+
+        return HomeAppUpdateReminderSummary(
+            appVersion: record.appVersion,
+            buildNumber: record.buildNumber,
+            lastUpdatedAt: record.lastUpdatedAt,
+            now: now,
+            calendar: calendar
+        )
+    }
+}
+
+protocol AppUpdateReminderStore {
+    func loadRecord() -> AppUpdateReminderRecord?
+    func saveRecord(_ record: AppUpdateReminderRecord)
+}
+
+protocol AppBuildMetadataProviding {
+    var appVersion: String { get }
+    var buildNumber: String { get }
+}
+
+nonisolated struct AppUpdateReminderRecord: Codable, Equatable, Sendable {
+    let appVersion: String
+    let buildNumber: String
+    let lastUpdatedAt: Date
+}
+
+nonisolated struct BundleAppBuildMetadataProvider: AppBuildMetadataProviding {
+    let bundle: Bundle
+
+    var appVersion: String {
+        bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    }
+
+    var buildNumber: String {
+        bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    }
+}
+
+nonisolated struct UserDefaultsAppUpdateReminderStore: AppUpdateReminderStore {
+    private let defaults: UserDefaults
+    private let key = "com.camp.task-manager.home.app-update-reminder.v1"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func loadRecord() -> AppUpdateReminderRecord? {
+        guard let data = defaults.data(forKey: key) else {
+            return nil
+        }
+
+        return try? JSONDecoder().decode(AppUpdateReminderRecord.self, from: data)
+    }
+
+    func saveRecord(_ record: AppUpdateReminderRecord) {
+        guard let data = try? JSONEncoder().encode(record) else {
+            return
+        }
+
+        defaults.set(data, forKey: key)
+    }
+}
+
 nonisolated struct HomeRoutineProgress: Identifiable, Equatable, Sendable {
     let routine: Routine
     let completionLog: RoutineCompletionLog?
@@ -32,6 +198,12 @@ nonisolated struct HomeRoutineProgress: Identifiable, Equatable, Sendable {
     var currentItem: RoutineItem? {
         routine.orderedItems.first { item in
             (completionLog?.state(for: item.id) ?? .untouched) == .untouched
+        }
+    }
+
+    var lastTouchedItem: RoutineItem? {
+        routine.orderedItems.last { item in
+            (completionLog?.state(for: item.id) ?? .untouched) != .untouched
         }
     }
 
@@ -244,6 +416,7 @@ final class HomeExecutionViewModel: ObservableObject {
         people: [],
         now: Date()
     )
+    @Published private(set) var appUpdateReminderSummary: HomeAppUpdateReminderSummary?
     @Published private(set) var vicesSummary = HomeVicesSummary(
         vices: [],
         logs: [],
@@ -278,6 +451,7 @@ final class HomeExecutionViewModel: ObservableObject {
     private let financeRepository: (any FinanceRepository)?
     private let calendarPermissionProvider: (any CalendarPermissionProviding)?
     private let calendarReader: (any CalendarReading)?
+    private let appUpdateReminderTracker: any AppUpdateReminderTracking
     private let calendar: Calendar
     private let nowProvider: @Sendable () -> Date
     private var hasLoaded = false
@@ -300,6 +474,7 @@ final class HomeExecutionViewModel: ObservableObject {
         financeRepository: (any FinanceRepository)? = nil,
         calendarPermissionProvider: (any CalendarPermissionProviding)? = nil,
         calendarReader: (any CalendarReading)? = nil,
+        appUpdateReminderTracker: (any AppUpdateReminderTracking)? = nil,
         calendar: Calendar = .current,
         nowProvider: @escaping @Sendable () -> Date = Date.init
     ) {
@@ -320,6 +495,7 @@ final class HomeExecutionViewModel: ObservableObject {
         self.financeRepository = financeRepository
         self.calendarPermissionProvider = calendarPermissionProvider
         self.calendarReader = calendarReader
+        self.appUpdateReminderTracker = appUpdateReminderTracker ?? NoopAppUpdateReminderTracker()
         self.calendar = calendar
         self.nowProvider = nowProvider
     }
@@ -429,6 +605,7 @@ final class HomeExecutionViewModel: ObservableObject {
     func load() {
         do {
             let now = nowProvider()
+            appUpdateReminderSummary = appUpdateReminderTracker.refresh(now: now, calendar: calendar)
             let activeRoutines = try routineRepository.fetchActiveRoutines(on: now, calendar: calendar)
             let logs = try routineRepository.fetchCompletionLogs(on: now, calendar: calendar)
             let logLookup = Dictionary(uniqueKeysWithValues: logs.map { ($0.routineID, $0) })
@@ -586,6 +763,7 @@ final class HomeExecutionViewModel: ObservableObject {
                 existingDebriefs: debriefs,
                 now: now
             )
+            let debriefCandidates = debriefs.compactMap { $0.pendingCandidateIfNeeded() }
             let focuses: [CalendarBlockFocus]
             if let calendarBlockFocusRepository {
                 focuses = try calendarBlockFocusRepository.fetchFocuses(
@@ -595,7 +773,7 @@ final class HomeExecutionViewModel: ObservableObject {
                 focuses = []
             }
             pendingDebriefCandidates = enrichDebriefCandidates(
-                candidates,
+                candidates + debriefCandidates,
                 projects: projects,
                 focuses: focuses
             )
@@ -769,7 +947,31 @@ final class HomeExecutionViewModel: ObservableObject {
             return
         }
 
-        setRoutineItem(routineID: routineID, itemID: item.id, state: .done)
+        setRoutineItem(routineID: routineID, itemID: item.id, state: .completed)
+    }
+
+    func undoLastRoutineAction(routineID: UUID) {
+        do {
+            let now = nowProvider()
+            let dayStart = calendar.startOfDay(for: now)
+            guard
+                let progress = progress(for: routineID),
+                let lastTouchedItem = progress.lastTouchedItem,
+                var log = try routineRepository.fetchCompletionLog(
+                    for: routineID,
+                    on: dayStart,
+                    calendar: calendar
+                )
+            else {
+                return
+            }
+
+            log.setItem(lastTouchedItem.id, state: .untouched, updatedAt: now)
+            try routineRepository.saveCompletionLog(log, replacingLogWithID: log.id)
+            load()
+        } catch {
+            errorMessage = "Unable to undo routine step: \(error.localizedDescription)"
+        }
     }
 
     func reportError(_ message: String) {

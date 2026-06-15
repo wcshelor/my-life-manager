@@ -87,7 +87,7 @@ final class FitnessViewModel: ObservableObject {
     init(
         fitnessRepository: any FitnessRepository,
         calendar: Calendar = .current,
-        nowProvider: @escaping @Sendable () -> Date = Date.init
+        nowProvider: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.fitnessRepository = fitnessRepository
         self.calendar = calendar
@@ -201,6 +201,14 @@ final class FitnessViewModel: ObservableObject {
 
     func latestSession(for exerciseID: UUID) -> ExerciseSession? {
         sessionsByExerciseID[exerciseID]?.first
+    }
+
+    func draftSession(for exercise: FitnessExercise) -> ExerciseSession {
+        latestSession(for: exercise.id)?.draftCopy(for: exercise) ?? ExerciseSession(
+            exerciseID: exercise.id,
+            createdAt: .now,
+            updatedAt: .now
+        )
     }
 
     func exercise(withID exerciseID: UUID) -> FitnessExercise? {

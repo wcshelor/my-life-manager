@@ -42,4 +42,19 @@ struct ViceModelTests {
         #expect(summary.totalTodayCount == 1)
         #expect(summary.detail == "1 logged today")
     }
+
+    @Test func viceSessionFormattingUsesPositionalElapsedTime() {
+        let vice = Vice(name: "Dab Pen", unitLabel: "Hits")
+        let session = ViceSession(
+            viceID: vice.id,
+            startedAt: Date(timeIntervalSince1970: 0),
+            lastHitAt: Date(timeIntervalSince1970: 9_000),
+            hitCount: 5
+        )
+
+        #expect(session.isActive(at: Date(timeIntervalSince1970: 9_500)))
+        #expect(session.isActive(at: Date(timeIntervalSince1970: 20_000)) == false)
+        #expect(ViceDurationFormatter.elapsedSince(Date(timeIntervalSince1970: 0), now: Date(timeIntervalSince1970: 3_661)) == "01:01:01")
+        #expect(ViceSessionSummary(session: session, viceName: vice.name).summaryText.contains("5 hits over") == true)
+    }
 }

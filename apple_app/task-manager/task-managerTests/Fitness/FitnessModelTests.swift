@@ -107,4 +107,48 @@ struct FitnessModelTests {
         #expect(metricSession.isValid(for: bikeExercise))
         #expect(invalidMetricSession.isValid(for: bikeExercise) == false)
     }
+
+    @Test func draftCopySeedsFromPriorSessionForMatchingExerciseShape() {
+        let strengthExercise = FitnessExercise(
+            name: "Bench",
+            tag: .push,
+            trackingStyle: .strengthSets,
+            weightUnit: .pounds
+        )
+        let strengthHistory = ExerciseSession(
+            exerciseID: strengthExercise.id,
+            strengthSets: [
+                StrengthSet(reps: 5, weight: 185),
+                StrengthSet(reps: 3, weight: 205)
+            ],
+            createdAt: .now
+        )
+        let strengthDraft = strengthHistory.draftCopy(for: strengthExercise)
+
+        #expect(strengthDraft.exerciseID == strengthExercise.id)
+        #expect(strengthDraft.strengthSets == strengthHistory.strengthSets)
+
+        let bikeExercise = FitnessExercise(
+            name: "Bike",
+            tag: .cardio,
+            trackingStyle: .metricSummary,
+            selectableMetricFields: [.durationMinutes, .difficultyLevel, .distance],
+            distanceUnit: .miles
+        )
+        let bikeHistory = ExerciseSession(
+            exerciseID: bikeExercise.id,
+            durationMinutes: 20,
+            difficultyLevel: 7,
+            averageRPM: 90,
+            distance: 5.5,
+            createdAt: .now
+        )
+        let bikeDraft = bikeHistory.draftCopy(for: bikeExercise)
+
+        #expect(bikeDraft.exerciseID == bikeExercise.id)
+        #expect(bikeDraft.durationMinutes == 20)
+        #expect(bikeDraft.difficultyLevel == 7)
+        #expect(bikeDraft.distance == 5.5)
+        #expect(bikeDraft.averageRPM == nil)
+    }
 }

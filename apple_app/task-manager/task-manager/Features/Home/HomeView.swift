@@ -82,6 +82,7 @@ struct HomeView: View {
     @State private var isEditingHome = false
     @State private var draggingWidgetID: UUID?
     @State private var previewDropTarget: PreviewDropTarget?
+    @State private var editingWidget: HomeWidgetInstance?
     private let widgetRendererRegistry = HomeWidgetRendererRegistry.standard
 
     private let taskRepository: any TaskRepository
@@ -107,6 +108,7 @@ struct HomeView: View {
     private let calendarBlockFocusRepository: any CalendarBlockFocusRepository
     private let debriefRepository: any DebriefRepository
     private let financeRepository: any FinanceRepository
+    private let appUpdateReminderTracker: any AppUpdateReminderTracking
 
     init(
         taskRepository: any TaskRepository,
@@ -132,7 +134,8 @@ struct HomeView: View {
         viceRepository: any ViceRepository,
         calendarBlockFocusRepository: any CalendarBlockFocusRepository,
         debriefRepository: any DebriefRepository,
-        financeRepository: any FinanceRepository
+        financeRepository: any FinanceRepository,
+        appUpdateReminderTracker: any AppUpdateReminderTracking = LiveAppUpdateReminderTracker()
     ) {
         self.taskRepository = taskRepository
         self.projectRepository = projectRepository
@@ -157,6 +160,7 @@ struct HomeView: View {
         self.calendarBlockFocusRepository = calendarBlockFocusRepository
         self.debriefRepository = debriefRepository
         self.financeRepository = financeRepository
+        self.appUpdateReminderTracker = appUpdateReminderTracker
         _viewModel = StateObject(
             wrappedValue: HomeExecutionViewModel(
                 taskRepository: taskRepository,
@@ -175,7 +179,8 @@ struct HomeView: View {
                 debriefRepository: debriefRepository,
                 financeRepository: financeRepository,
                 calendarPermissionProvider: calendarPermissionProvider,
-                calendarReader: calendarReader
+                calendarReader: calendarReader,
+                appUpdateReminderTracker: appUpdateReminderTracker
             )
         )
         _homeViewModel = StateObject(
@@ -256,177 +261,16 @@ struct HomeView: View {
             }
             .sheet(item: $presentedSheet) { destination in
                 NavigationStack {
-                    switch destination {
-                    case .addWidget:
-                        AddHomeWidgetView(
-                            viewModel: homeViewModel,
-                            projects: viewModel.projects,
-                            routines: viewModel.routineProgress.map(\.routine)
-                        ) {
-                            presentedSheet = nil
-                        }
-                    case .customizeHome:
-                        HomeCustomizationView(viewModel: homeViewModel) {
-                            presentedSheet = nil
-                        }
-                    case .inboxReview:
-                        InboxReviewView(
-                            taskRepository: taskRepository,
-                            projectRepository: projectRepository,
-                            captureRepository: captureRepository,
-                            projectItemRepository: projectItemRepository,
-                            shoppingRepository: shoppingRepository,
-                            initialCaptures: viewModel.captures,
-                            initialProjects: viewModel.projects,
-                            onInboxChanged: {
-                                viewModel.load()
-                            }
-                        ) {
-                            viewModel.load()
-                        }
-                    case .promiseForm:
-                        PromiseFormView { promise in
-                            viewModel.savePromise(promise)
-                            presentedSheet = nil
-                        }
-                    case .promiseCheckIn(let promise):
-                        PromiseCheckInView(
-                            promise: promise,
-                            onResolve: { outcome, reflection in
-                                viewModel.resolvePromise(
-                                    withID: promise.id,
-                                    outcome: outcome,
-                                    reflection: reflection
-                                )
-                                presentedSheet = nil
-                            },
-                            onReset: { title, checkInAt in
-                                viewModel.makeResetPromise(
-                                    from: promise,
-                                    title: title,
-                                    checkInAt: checkInAt
-                                )
-                                presentedSheet = nil
-                            }
-                        )
-                    case .routineBuilder:
-                        RoutineBuilderView { routine in
-                            viewModel.saveRoutine(routine)
-                            presentedSheet = nil
-                        }
-                    case .routineSession(let routineID):
-                        RoutineSessionView(
-                            viewModel: viewModel,
-                            registry: homeViewModel.registry,
-                            taskRepository: taskRepository,
-                            projectRepository: projectRepository,
-                            captureRepository: captureRepository,
-                            projectItemRepository: projectItemRepository,
-                            scheduledBlockRepository: scheduledBlockRepository,
-                            settingsRepository: settingsRepository,
-                            calendarPermissionProvider: calendarPermissionProvider,
-                            calendarListingService: calendarListingService,
-                            calendarReader: calendarReader,
-                            calendarWriter: calendarWriter,
-                            calendarReconciler: calendarReconciler,
-                            calendarChangeObserver: calendarChangeObserver,
-                            promiseRepository: promiseRepository,
-                            shoppingRepository: shoppingRepository,
-                            healthRepository: healthRepository,
-                            musicPracticeRepository: musicPracticeRepository,
-                            fitnessRepository: fitnessRepository,
-                            peopleMemoryRepository: peopleMemoryRepository,
-                            viceRepository: viceRepository,
-                            financeRepository: financeRepository,
-                            routineID: routineID
-                        )
-                    case .shoppingList:
-                        ShoppingListView(shoppingRepository: shoppingRepository) {
-                            viewModel.load()
-                        }
-                    case .shoppingQuickAdd:
-                        ShoppingQuickAddSheet(shoppingRepository: shoppingRepository) {
-                            viewModel.load()
-                            presentedSheet = nil
-                        }
-                    case .health:
-                        HealthView(
-                            healthRepository: healthRepository,
-                            fitnessRepository: fitnessRepository
-                        ) {
-                            viewModel.load()
-                        }
-                    case .musicPractice:
-                        MusicPracticeView(musicPracticeRepository: musicPracticeRepository) {
-                            viewModel.load()
-                        }
-                    case .fitness:
-                        FitnessView(fitnessRepository: fitnessRepository) {
-                            viewModel.load()
-                        }
-                    case .peopleMemory:
-                        PeopleMemoryView(peopleMemoryRepository: peopleMemoryRepository) {
-                            viewModel.load()
-                        }
-                    case .vices:
-                        VicesView(viceRepository: viceRepository) {
-                            viewModel.load()
-                        }
-                    case .debriefs:
-                        DebriefListView(
-                            debriefRepository: debriefRepository,
-                            captureRepository: captureRepository,
-                            taskRepository: taskRepository,
-                            projectRepository: projectRepository,
-                            calendarBlockFocusRepository: calendarBlockFocusRepository,
-                            calendarPermissionProvider: calendarPermissionProvider,
-                            calendarReader: calendarReader
-                        ) {
-                            viewModel.load()
-                        }
-                    case .finance:
-                        FinanceDashboardView(financeRepository: financeRepository) {
-                            viewModel.load()
-                        }
-                    }
+                    presentedSheetContent(for: destination)
+                }
+            }
+            .sheet(item: $editingWidget) { widget in
+                NavigationStack {
+                    widgetQuickActionEditor(for: widget)
                 }
             }
             .navigationDestination(for: NavigationDestination.self) { destination in
-                switch destination {
-                case .tasks:
-                    TaskListView(
-                        taskRepository: taskRepository,
-                        projectRepository: projectRepository,
-                        scheduledBlockRepository: scheduledBlockRepository,
-                        calendarWriter: calendarWriter,
-                        promiseRepository: promiseRepository
-                    )
-                case .planner:
-                    plannerDestination
-                case .projects:
-                    ProjectsView(
-                        taskRepository: taskRepository,
-                        projectRepository: projectRepository,
-                        captureRepository: captureRepository,
-                        projectItemRepository: projectItemRepository,
-                        calendarPermissionProvider: calendarPermissionProvider,
-                        calendarReader: calendarReader,
-                        calendarBlockFocusRepository: calendarBlockFocusRepository,
-                        debriefRepository: debriefRepository
-                    )
-                case .project(let projectID):
-                    ProjectDetailView(
-                        projectID: projectID,
-                        taskRepository: taskRepository,
-                        projectRepository: projectRepository,
-                        captureRepository: captureRepository,
-                        projectItemRepository: projectItemRepository,
-                        calendarPermissionProvider: calendarPermissionProvider,
-                        calendarReader: calendarReader,
-                        calendarBlockFocusRepository: calendarBlockFocusRepository,
-                        debriefRepository: debriefRepository
-                    )
-                }
+                navigationDestinationView(for: destination)
             }
             .onChange(of: scenePhase) { _, newPhase in
                 guard newPhase == .active else {
@@ -443,20 +287,200 @@ struct HomeView: View {
         }
     }
 
-    private var plannerDestination: some View {
-                PlannerView(
-                    taskRepository: taskRepository,
-                    scheduledBlockRepository: scheduledBlockRepository,
-                    settingsRepository: settingsRepository,
-                    calendarPermissionProvider: calendarPermissionProvider,
-                    calendarListingService: calendarListingService,
-                    calendarReader: calendarReader,
-                    calendarWriter: calendarWriter,
-                    calendarReconciler: calendarReconciler,
-                    calendarChangeObserver: calendarChangeObserver,
-                    promiseRepository: promiseRepository,
-                    navigationTitle: "Plan the Day"
-                )
+    private var plannerDestination: AnyView {
+        AnyView(PlannerView(
+            taskRepository: taskRepository,
+            scheduledBlockRepository: scheduledBlockRepository,
+            settingsRepository: settingsRepository,
+            calendarPermissionProvider: calendarPermissionProvider,
+            calendarListingService: calendarListingService,
+            calendarReader: calendarReader,
+            calendarWriter: calendarWriter,
+            calendarReconciler: calendarReconciler,
+            calendarChangeObserver: calendarChangeObserver,
+            promiseRepository: promiseRepository,
+            navigationTitle: "Plan the Day"
+        ))
+    }
+
+    private func presentedSheetContent(for destination: SheetDestination) -> AnyView {
+        switch destination {
+        case .addWidget:
+            return AnyView(AddHomeWidgetView(
+                viewModel: homeViewModel,
+                projects: viewModel.projects,
+                routines: viewModel.routineProgress.map(\.routine)
+            ) {
+                presentedSheet = nil
+            })
+        case .customizeHome:
+            return AnyView(HomeCustomizationView(viewModel: homeViewModel) {
+                presentedSheet = nil
+            })
+        case .inboxReview:
+            return AnyView(InboxReviewView(
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                captureRepository: captureRepository,
+                projectItemRepository: projectItemRepository,
+                shoppingRepository: shoppingRepository,
+                musicPracticeRepository: musicPracticeRepository,
+                initialCaptures: viewModel.captures,
+                initialProjects: viewModel.projects,
+                onInboxChanged: {
+                    viewModel.load()
+                }
+            ) {
+                viewModel.load()
+            })
+        case .promiseForm:
+            return AnyView(PromiseFormView { promise in
+                viewModel.savePromise(promise)
+                presentedSheet = nil
+            })
+        case .promiseCheckIn(let promise):
+            return AnyView(PromiseCheckInView(
+                promise: promise,
+                onResolve: { outcome, reflection in
+                    viewModel.resolvePromise(
+                        withID: promise.id,
+                        outcome: outcome,
+                        reflection: reflection
+                    )
+                    presentedSheet = nil
+                },
+                onReset: { title, checkInAt in
+                    viewModel.makeResetPromise(
+                        from: promise,
+                        title: title,
+                        checkInAt: checkInAt
+                    )
+                    presentedSheet = nil
+                }
+            ))
+        case .routineBuilder:
+            return AnyView(RoutineBuilderView { routine in
+                viewModel.saveRoutine(routine)
+                presentedSheet = nil
+            })
+        case .routineSession(let routineID):
+            return AnyView(RoutineSessionView(
+                viewModel: viewModel,
+                registry: homeViewModel.registry,
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                captureRepository: captureRepository,
+                projectItemRepository: projectItemRepository,
+                scheduledBlockRepository: scheduledBlockRepository,
+                settingsRepository: settingsRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarListingService: calendarListingService,
+                calendarReader: calendarReader,
+                calendarWriter: calendarWriter,
+                calendarReconciler: calendarReconciler,
+                calendarChangeObserver: calendarChangeObserver,
+                promiseRepository: promiseRepository,
+                shoppingRepository: shoppingRepository,
+                healthRepository: healthRepository,
+                musicPracticeRepository: musicPracticeRepository,
+                fitnessRepository: fitnessRepository,
+                peopleMemoryRepository: peopleMemoryRepository,
+                viceRepository: viceRepository,
+                calendarBlockFocusRepository: calendarBlockFocusRepository,
+                debriefRepository: debriefRepository,
+                financeRepository: financeRepository,
+                routineID: routineID
+            ))
+        case .shoppingList:
+            return AnyView(ShoppingListView(shoppingRepository: shoppingRepository) {
+                viewModel.load()
+            })
+        case .shoppingQuickAdd:
+            return AnyView(ShoppingQuickAddSheet(shoppingRepository: shoppingRepository) {
+                viewModel.load()
+                presentedSheet = nil
+            })
+        case .health:
+            return AnyView(HealthView(
+                healthRepository: healthRepository,
+                fitnessRepository: fitnessRepository
+            ) {
+                viewModel.load()
+            })
+        case .musicPractice:
+            return AnyView(MusicPracticeView(musicPracticeRepository: musicPracticeRepository) {
+                viewModel.load()
+            })
+        case .fitness:
+            return AnyView(FitnessView(fitnessRepository: fitnessRepository) {
+                viewModel.load()
+            })
+        case .peopleMemory:
+            return AnyView(PeopleMemoryView(peopleMemoryRepository: peopleMemoryRepository) {
+                viewModel.load()
+            })
+        case .vices:
+            return AnyView(VicesView(
+                viceRepository: viceRepository,
+                debriefRepository: debriefRepository
+            ) {
+                viewModel.load()
+            })
+        case .debriefs:
+            return AnyView(DebriefListView(
+                debriefRepository: debriefRepository,
+                captureRepository: captureRepository,
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                calendarBlockFocusRepository: calendarBlockFocusRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarReader: calendarReader
+            ) {
+                viewModel.load()
+            })
+        case .finance:
+            return AnyView(FinanceDashboardView(financeRepository: financeRepository) {
+                viewModel.load()
+            })
+        }
+    }
+
+    private func navigationDestinationView(for destination: NavigationDestination) -> AnyView {
+        switch destination {
+        case .tasks:
+            return AnyView(TaskListView(
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                scheduledBlockRepository: scheduledBlockRepository,
+                calendarWriter: calendarWriter,
+                promiseRepository: promiseRepository
+            ))
+        case .planner:
+            return plannerDestination
+        case .projects:
+            return AnyView(ProjectsView(
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                captureRepository: captureRepository,
+                projectItemRepository: projectItemRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarReader: calendarReader,
+                calendarBlockFocusRepository: calendarBlockFocusRepository,
+                debriefRepository: debriefRepository
+            ))
+        case .project(let projectID):
+            return AnyView(ProjectDetailView(
+                projectID: projectID,
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                captureRepository: captureRepository,
+                projectItemRepository: projectItemRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarReader: calendarReader,
+                calendarBlockFocusRepository: calendarBlockFocusRepository,
+                debriefRepository: debriefRepository
+            ))
+        }
     }
 
     private var homeBoard: some View {
@@ -586,21 +610,48 @@ struct HomeView: View {
                             Image(systemName: "minus.circle.fill")
                         }
                         .buttonStyle(.bordered)
+
+                        Button {
+                            editingWidget = widget
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
 
-                content()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onLongPressGesture {
-                        isEditingHome = true
+                Group {
+                    if isEditingHome {
+                        ZStack {
+                            content()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .allowsHitTesting(false)
+
+                            Color.clear
+                                .contentShape(Rectangle())
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            editingWidget = widget
+                        }
+                        .onDrag {
+                            draggingWidgetID = widget.id
+                            previewDropTarget = nil
+                            return NSItemProvider(object: widget.id.uuidString as NSString)
+                        }
+                    } else {
+                        content()
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .onDrag {
-                        draggingWidgetID = widget.id
-                        previewDropTarget = nil
-                        return NSItemProvider(object: widget.id.uuidString as NSString)
+                }
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    guard isEditingHome == false else {
+                        return
                     }
-                    .accessibilityElement(children: .contain)
+                    isEditingHome = true
+                }
+                .accessibilityElement(children: .contain)
             }
             .padding(isEditingHome ? 10 : 14)
             .background {
@@ -616,6 +667,7 @@ struct HomeView: View {
                     GeometryReader { geometry in
                         Color.clear
                             .contentShape(Rectangle())
+                            .allowsHitTesting(draggingWidgetID != nil)
                             .onDrop(
                                 of: [UTType.text],
                                 delegate: HomeWidgetDropDelegate(
@@ -668,14 +720,193 @@ struct HomeView: View {
         previewDropTarget = nil
     }
 
+    private func widgetDefinition(for widget: HomeWidgetInstance) -> HomeWidgetDefinition? {
+        homeViewModel.descriptor(for: widget).flatMap {
+            homeViewModel.registry.definition(for: $0.module)
+        }
+    }
+
+    private func resolvedQuickActionIDs(for widget: HomeWidgetInstance) -> [String] {
+        guard let definition = widgetDefinition(for: widget) else {
+            return []
+        }
+
+        let availableIDs = Set(definition.availableQuickActions.map(\.id))
+        let selectedIDs = widget.configuration.selectedQuickActionIDs.isEmpty
+            ? definition.sanitizedDefaultQuickActionIDs
+            : widget.configuration.selectedQuickActionIDs.filter { availableIDs.contains($0) }
+
+        return Array(selectedIDs.prefix(2))
+    }
+
+    private func performQuickAction(_ actionID: String, for widget: HomeWidgetInstance) {
+        guard isEditingHome == false else {
+            return
+        }
+        guard let definition = widgetDefinition(for: widget) else {
+            return
+        }
+
+        switch actionID {
+        case "addTask":
+            presentedSheet = .inboxReview
+        case "today":
+            navigationPath.append(.planner)
+        case "capture":
+            presentCaptureOverlay()
+        case "overdue":
+            navigationPath.append(.tasks)
+        case "openProjects", "pinnedProjects", "projectFocus", "projectInbox":
+            navigationPath.append(.projects)
+        case "newPromise":
+            presentedSheet = .promiseForm
+        case "checkInDue":
+            if let promise = viewModel.duePromises.first {
+                presentedSheet = .promiseCheckIn(promise)
+            } else {
+                presentedSheet = .promiseForm
+            }
+        case "activePromises":
+            presentedSheet = .promiseForm
+        case "newRoutine":
+            presentedSheet = .routineBuilder
+        case "todayRoutines":
+            if let routineID = viewModel.routineProgress.first?.routine.id {
+                presentedSheet = .routineSession(routineID)
+            } else {
+                presentedSheet = .routineBuilder
+            }
+        case "currentStep":
+            if let routineID = viewModel.routineProgress.first?.routine.id {
+                presentedSheet = .routineSession(routineID)
+            } else {
+                presentedSheet = .routineBuilder
+            }
+        case "openShopping", "neededItems":
+            presentedSheet = .shoppingList
+        case "quickAddShopping":
+            presentedSheet = .shoppingQuickAdd
+        case "openPlanner", "planToday", "reviewSchedule", "createScheduledBlock":
+            navigationPath.append(.planner)
+        case "openHealth", "logMeal", "logSleep", "healthHistory":
+            presentedSheet = .health
+        case "logHit", "activeSession", "history":
+            presentedSheet = .vices
+        case "debrief":
+            presentedSheet = .debriefs
+        case "startPractice", "currentPiece", "addPracticeNote", "regimen":
+            presentedSheet = .musicPractice
+        case "openFitness", "logWorkout", "recentWorkouts", "workoutDays":
+            presentedSheet = .fitness
+        case "openPeopleMemory", "addPerson", "studyNow", "reviewDue":
+            presentedSheet = .peopleMemory
+        case "addExpense", "budget", "subscriptions":
+            presentedSheet = .finance
+        default:
+            switch definition.mainDestination {
+            case .openTasks:
+                navigationPath.append(.tasks)
+            case .openPlanner:
+                navigationPath.append(.planner)
+            case .openProjects:
+                navigationPath.append(.projects)
+            case .newPromise:
+                presentedSheet = .promiseForm
+            case .newRoutine:
+                presentedSheet = .routineBuilder
+            case .openShopping:
+                presentedSheet = .shoppingList
+            case .openHealth:
+                presentedSheet = .health
+            case .openMusicPractice:
+                presentedSheet = .musicPractice
+            case .openFitness:
+                presentedSheet = .fitness
+            case .openPeopleMemory:
+                presentedSheet = .peopleMemory
+            case .openVices:
+                presentedSheet = .vices
+            case .openFinance:
+                presentedSheet = .finance
+            default:
+                break
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func widgetQuickActionEditor(for widget: HomeWidgetInstance) -> some View {
+        if let definition = widgetDefinition(for: widget) {
+            Form {
+                Section("Quick Buttons") {
+                    Text("Choose up to 2 buttons.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    let selectedIDs = Set(resolvedQuickActionIDs(for: widget))
+                    ForEach(definition.availableQuickActions) { action in
+                        Toggle(
+                            action.title,
+                            isOn: Binding(
+                                get: { selectedIDs.contains(action.id) },
+                                set: { isOn in
+                                    updateQuickActionSelection(action.id, isOn: isOn, widgetID: widget.id)
+                                }
+                            )
+                        )
+                        .disabled(selectedIDs.count >= 2 && selectedIDs.contains(action.id) == false)
+                    }
+                }
+            }
+            .navigationTitle("Edit Widget")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        editingWidget = nil
+                    }
+                }
+            }
+        } else {
+            ContentUnavailableView("No Quick Actions", systemImage: "slider.horizontal.3")
+                .navigationTitle("Edit Widget")
+        }
+    }
+
+    private func updateQuickActionSelection(_ actionID: String, isOn: Bool, widgetID: UUID) {
+        guard let widget = homeViewModel.widgets.first(where: { $0.id == widgetID }) else {
+            return
+        }
+
+        var updated = widget
+        updated.configuration.selectedQuickActionIDs = resolvedQuickActionIDs(for: widget)
+        if isOn {
+            guard updated.configuration.selectedQuickActionIDs.count < 2 else {
+                return
+            }
+            updated.configuration.selectedQuickActionIDs.append(actionID)
+        } else {
+            updated.configuration.selectedQuickActionIDs.removeAll { $0 == actionID }
+        }
+        updated.configuration.normalizeQuickActions()
+        homeViewModel.updateWidgetConfiguration(updated)
+        editingWidget = updated
+    }
+
     private var widgetRenderContext: HomeWidgetRenderContext {
         HomeWidgetRenderContext(
             execution: viewModel,
+            isEditing: isEditingHome,
             descriptor: { kind in
                 homeViewModel.registry.descriptor(for: kind)
             },
+            definition: { module in
+                homeViewModel.registry.definition(for: module)
+            },
             perform: { action, widget in
                 performWidgetAction(action, for: widget)
+            },
+            performQuickAction: { actionID, widget in
+                performQuickAction(actionID, for: widget)
             },
             openProject: { projectID in
                 navigationPath.append(.project(projectID))
@@ -714,6 +945,9 @@ struct HomeView: View {
         _ action: HomeWidgetDefaultAction,
         for widget: HomeWidgetInstance
     ) {
+        guard isEditingHome == false else {
+            return
+        }
         switch action {
         case .openCapture:
             presentCaptureOverlay()
@@ -1408,6 +1642,7 @@ private struct RoutineBuilderView: View {
     @State private var itemText = ""
     @State private var selectedWeekdays: Set<RoutineWeekday> = []
 
+    let routineToEdit: Routine? = nil
     let onSave: (Routine) -> Void
 
     var body: some View {
@@ -1434,7 +1669,7 @@ private struct RoutineBuilderView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("New Routine")
+        .navigationTitle(routineToEdit == nil ? "New Routine" : "Edit Routine")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -1458,6 +1693,16 @@ private struct RoutineBuilderView: View {
                 }
                 .disabled(Routine.cleanedName(from: name) == nil || cleanedItemTitles.isEmpty)
             }
+        }
+        .onAppear {
+            guard let routineToEdit else {
+                return
+            }
+
+            name = routineToEdit.name
+            notes = routineToEdit.notes ?? ""
+            itemText = routineToEdit.orderedItems.map(\.title).joined(separator: "\n")
+            selectedWeekdays = Set(routineToEdit.activeWeekdays)
         }
     }
 
@@ -1516,239 +1761,283 @@ private struct RoutineSessionView: View {
     let fitnessRepository: any FitnessRepository
     let peopleMemoryRepository: any PeopleMemoryRepository
     let viceRepository: any ViceRepository
+    let calendarBlockFocusRepository: any CalendarBlockFocusRepository
+    let debriefRepository: any DebriefRepository
     let financeRepository: any FinanceRepository
     let routineID: UUID
 
     var body: some View {
-        Group {
-            if let progress = viewModel.progress(for: routineID) {
-                let steps = progress.routine.orderedItems
-                let isFinished = steps.isEmpty || currentIndex >= steps.count
-
-                VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(progress.routine.name)
-                            .font(.title3.weight(.semibold))
-
-                        Text(progressText(totalCount: steps.count, isFinished: isFinished))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-
-                        ProgressView(
-                            value: Double(progress.doneCount + progress.skippedCount),
-                            total: Double(max(progress.totalCount, 1))
-                        )
-                    }
-
-                    Spacer()
-
-                    if isFinished {
-                        VStack(alignment: .center, spacing: 16) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 56))
-                                .foregroundStyle(.green)
-
-                            Text("Routine Complete")
-                                .font(.title2.weight(.semibold))
-
-                            Text("Completed \(progress.doneCount) · Skipped \(progress.skippedCount)")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                    } else if steps.indices.contains(currentIndex) {
-                        let item = steps[currentIndex]
-                        let state = progress.completionLog?.state(for: item.id) ?? .untouched
-
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text(item.title)
-                                .font(.title2.weight(.semibold))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                            if state != .untouched {
-                                Text(stateLabel(for: state))
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(state == .done ? .green : .orange)
-                            }
-                        }
-                        .padding(18)
-                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                        routineStepLinksSection(progress: progress, item: item)
-
-                        HStack(spacing: 12) {
-                            Button("Back") {
-                                currentIndex = max(0, currentIndex - 1)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(currentIndex == 0)
-
-                            Button("Skip") {
-                                advance(stepID: item.id, state: .skipped, totalCount: steps.count)
-                            }
-                            .buttonStyle(.bordered)
-
-                            Button(isLastStep(totalCount: steps.count) ? "Done" : "Next") {
-                                advance(stepID: item.id, state: .done, totalCount: steps.count)
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
-
-                    Spacer()
-                }
-                .padding()
-                .navigationTitle("Routine")
-                .navigationBarTitleDisplayMode(.inline)
-                .confirmationDialog(
-                    "Add Routine Link",
-                    isPresented: $isShowingLinkPicker,
-                    titleVisibility: .visible
-                ) {
-                    if moduleLinkDescriptors.isEmpty {
-                        Button("No Available Module Links") {}
-                            .disabled(true)
-                    } else {
-                        ForEach(moduleLinkDescriptors, id: \.kind) { descriptor in
-                            Button(descriptor.displayName) {
-                                addModuleLink(descriptor: descriptor)
-                            }
-                        }
-                    }
-                }
-                .sheet(item: $presentedLinkSheet) { sheet in
-                    NavigationStack {
-                        switch sheet {
-                        case .promiseCheckIn(let promise):
-                            PromiseCheckInView(
-                                promise: promise,
-                                onResolve: { outcome, reflection in
-                                    viewModel.resolvePromise(
-                                        withID: promise.id,
-                                        outcome: outcome,
-                                        reflection: reflection
-                                    )
-                                    presentedLinkSheet = nil
-                                },
-                                onReset: { title, checkInAt in
-                                    viewModel.makeResetPromise(
-                                        from: promise,
-                                        title: title,
-                                        checkInAt: checkInAt
-                                    )
-                                    presentedLinkSheet = nil
-                                }
-                            )
-                        case .promiseForm:
-                            PromiseFormView { promise in
-                                viewModel.savePromise(promise)
-                                presentedLinkSheet = nil
-                            }
-                        case .routineBuilder:
-                            RoutineBuilderView { routine in
-                                viewModel.saveRoutine(routine)
-                                presentedLinkSheet = nil
-                            }
-                        case .tasks:
-                            TaskListView(
-                                taskRepository: taskRepository,
-                                projectRepository: projectRepository,
-                                scheduledBlockRepository: scheduledBlockRepository,
-                                calendarWriter: calendarWriter,
-                                promiseRepository: promiseRepository
-                            )
-                        case .planner:
-                            PlannerView(
-                                taskRepository: taskRepository,
-                                scheduledBlockRepository: scheduledBlockRepository,
-                                settingsRepository: settingsRepository,
-                                calendarPermissionProvider: calendarPermissionProvider,
-                                calendarListingService: calendarListingService,
-                                calendarReader: calendarReader,
-                                calendarWriter: calendarWriter,
-                                calendarReconciler: calendarReconciler,
-                                calendarChangeObserver: calendarChangeObserver,
-                                promiseRepository: promiseRepository,
-                                navigationTitle: "Plan the Day"
-                            )
-                        case .projects:
-                            ProjectsView(
-                                taskRepository: taskRepository,
-                                projectRepository: projectRepository,
-                                captureRepository: captureRepository,
-                                projectItemRepository: projectItemRepository,
-                                calendarPermissionProvider: calendarPermissionProvider,
-                                calendarReader: calendarReader,
-                                calendarBlockFocusRepository: calendarBlockFocusRepository,
-                                debriefRepository: debriefRepository
-                            )
-                        case .shoppingList:
-                            ShoppingListView(shoppingRepository: shoppingRepository) {
-                                viewModel.load()
-                            }
-                        case .health:
-                            HealthView(
-                                healthRepository: healthRepository,
-                                fitnessRepository: fitnessRepository
-                            ) {
-                                viewModel.load()
-                            }
-                        case .musicPractice:
-                            MusicPracticeView(musicPracticeRepository: musicPracticeRepository) {
-                                viewModel.load()
-                            }
-                        case .fitness:
-                            FitnessView(fitnessRepository: fitnessRepository) {
-                                viewModel.load()
-                            }
-                        case .peopleMemory:
-                            PeopleMemoryView(peopleMemoryRepository: peopleMemoryRepository) {
-                                viewModel.load()
-                            }
-                        case .vices:
-                            VicesView(viceRepository: viceRepository) {
-                                viewModel.load()
-                            }
-                        case .finance:
-                            FinanceDashboardView(financeRepository: financeRepository) {
-                                viewModel.load()
-                            }
-                        case .pvtTest:
-                            PVTTestView { session in
-                                do {
-                                    try healthRepository.savePVTSession(session)
-                                    viewModel.load()
-                                    presentedLinkSheet = nil
-                                } catch {
-                                    viewModel.reportError("Unable to save PVT session: \(error.localizedDescription)")
-                                }
-                            }
-                        case .unavailable(let title, let message):
-                            RoutineLinkUnavailableView(title: title, message: message)
-                        }
-                    }
-                }
-                .onAppear {
-                    alignCurrentIndex(with: progress)
-                }
-                .onChange(of: progress.completionLog) { _, _ in
-                    alignCurrentIndex(with: progress)
-                }
-            } else {
-                ContentUnavailableView(
-                    "Routine Not Available",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("This routine is no longer active today.")
-                )
-                .navigationTitle("Routine")
-            }
-        }
+        routineSessionContent
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") {
                     dismiss()
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var routineSessionContent: some View {
+        if let progress = viewModel.progress(for: routineID) {
+            activeRoutineView(for: progress)
+        } else {
+            unavailableRoutineView
+        }
+    }
+
+    private func activeRoutineView(for progress: HomeRoutineProgress) -> some View {
+        let steps = progress.routine.orderedItems
+        let isFinished = steps.isEmpty || currentIndex >= steps.count
+
+        return GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 24) {
+                routineHeader(progress: progress, steps: steps, isFinished: isFinished)
+                Spacer(minLength: 0)
+                activeRoutineStateView(progress: progress, steps: steps, isFinished: isFinished)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                Spacer(minLength: 0)
+                if steps.isEmpty == false {
+                    routineActionBar(
+                        progress: progress,
+                        steps: steps,
+                        height: max(180, geometry.size.height * 0.3)
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .padding()
+        .navigationTitle("Routine")
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Add Routine Link",
+            isPresented: $isShowingLinkPicker,
+            titleVisibility: .visible
+        ) {
+            if moduleLinkDescriptors.isEmpty {
+                Button("No Available Module Links") {}
+                    .disabled(true)
+            } else {
+                ForEach(moduleLinkDescriptors, id: \.kind) { descriptor in
+                    Button(descriptor.displayName) {
+                        addModuleLink(descriptor: descriptor)
+                    }
+                }
+            }
+        }
+        .sheet(item: $presentedLinkSheet) { sheet in
+            NavigationStack {
+                presentedLinkSheetContent(for: sheet)
+            }
+        }
+        .onAppear {
+            alignCurrentIndex(with: progress)
+        }
+        .onChange(of: progress.completionLog) { _, _ in
+            alignCurrentIndex(with: progress)
+        }
+    }
+
+    private func routineHeader(
+        progress: HomeRoutineProgress,
+        steps: [RoutineItem],
+        isFinished: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(progress.routine.name)
+                .font(.title3.weight(.semibold))
+
+            Text(progressText(totalCount: steps.count, isFinished: isFinished))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            ProgressView(
+                value: Double(progress.completedCount + progress.skippedCount),
+                total: Double(max(progress.totalCount, 1))
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func activeRoutineStateView(
+        progress: HomeRoutineProgress,
+        steps: [RoutineItem],
+        isFinished: Bool
+    ) -> some View {
+        if isFinished {
+            completedRoutineView(progress: progress)
+        } else if steps.indices.contains(currentIndex) {
+            let item = steps[currentIndex]
+            let state = progress.completionLog?.state(for: item.id) ?? .untouched
+            currentRoutineStepView(
+                progress: progress,
+                item: item,
+                state: state
+            )
+        }
+    }
+
+    private func completedRoutineView(progress: HomeRoutineProgress) -> some View {
+        VStack(alignment: .center, spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.green)
+
+            Text("Routine Complete")
+                .font(.title2.weight(.semibold))
+
+            Text("Completed \(progress.completedCount) · Skipped \(progress.skippedCount)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func currentRoutineStepView(
+        progress: HomeRoutineProgress,
+        item: RoutineItem,
+        state: RoutineStepCompletionState
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(item.title)
+                    .font(.title2.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if state != .untouched {
+                    Text(stateLabel(for: state))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(state == .completed ? Color.green : Color.orange)
+                }
+            }
+            .padding(18)
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            routineStepLinksSection(progress: progress, item: item)
+        }
+    }
+
+    private var unavailableRoutineView: some View {
+        ContentUnavailableView(
+            "Routine Not Available",
+            systemImage: "exclamationmark.triangle",
+            description: Text("This routine is no longer active today.")
+        )
+        .navigationTitle("Routine")
+    }
+
+    private func presentedLinkSheetContent(for sheet: RoutineStepLinkSheet) -> AnyView {
+        switch sheet {
+        case .promiseCheckIn(let promise):
+            return AnyView(PromiseCheckInView(
+                promise: promise,
+                onResolve: { outcome, reflection in
+                    viewModel.resolvePromise(
+                        withID: promise.id,
+                        outcome: outcome,
+                        reflection: reflection
+                    )
+                    presentedLinkSheet = nil
+                },
+                onReset: { title, checkInAt in
+                    viewModel.makeResetPromise(
+                        from: promise,
+                        title: title,
+                        checkInAt: checkInAt
+                    )
+                    presentedLinkSheet = nil
+                }
+            ))
+        case .promiseForm:
+            return AnyView(PromiseFormView { promise in
+                viewModel.savePromise(promise)
+                presentedLinkSheet = nil
+            })
+        case .routineBuilder:
+            return AnyView(RoutineBuilderView { routine in
+                viewModel.saveRoutine(routine)
+                presentedLinkSheet = nil
+            })
+        case .tasks:
+            return AnyView(TaskListView(
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                scheduledBlockRepository: scheduledBlockRepository,
+                calendarWriter: calendarWriter,
+                promiseRepository: promiseRepository
+            ))
+        case .planner:
+            return AnyView(PlannerView(
+                taskRepository: taskRepository,
+                scheduledBlockRepository: scheduledBlockRepository,
+                settingsRepository: settingsRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarListingService: calendarListingService,
+                calendarReader: calendarReader,
+                calendarWriter: calendarWriter,
+                calendarReconciler: calendarReconciler,
+                calendarChangeObserver: calendarChangeObserver,
+                promiseRepository: promiseRepository,
+                navigationTitle: "Plan the Day"
+            ))
+        case .projects:
+            return AnyView(ProjectsView(
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                captureRepository: captureRepository,
+                projectItemRepository: projectItemRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarReader: calendarReader,
+                calendarBlockFocusRepository: calendarBlockFocusRepository,
+                debriefRepository: debriefRepository
+            ))
+        case .shoppingList:
+            return AnyView(ShoppingListView(shoppingRepository: shoppingRepository) {
+                viewModel.load()
+            })
+        case .health:
+            return AnyView(HealthView(
+                healthRepository: healthRepository,
+                fitnessRepository: fitnessRepository
+            ) {
+                viewModel.load()
+            })
+        case .musicPractice:
+            return AnyView(MusicPracticeView(musicPracticeRepository: musicPracticeRepository) {
+                viewModel.load()
+            })
+        case .fitness:
+            return AnyView(FitnessView(fitnessRepository: fitnessRepository) {
+                viewModel.load()
+            })
+        case .peopleMemory:
+            return AnyView(PeopleMemoryView(peopleMemoryRepository: peopleMemoryRepository) {
+                viewModel.load()
+            })
+        case .vices:
+            return AnyView(VicesView(
+                viceRepository: viceRepository,
+                debriefRepository: debriefRepository
+            ) {
+                viewModel.load()
+            })
+        case .finance:
+            return AnyView(FinanceDashboardView(financeRepository: financeRepository) {
+                viewModel.load()
+            })
+        case .pvtTest:
+            return AnyView(PVTTestView { session in
+                do {
+                    try healthRepository.savePVTSession(session)
+                    viewModel.load()
+                    presentedLinkSheet = nil
+                } catch {
+                    viewModel.reportError("Unable to save PVT session: \(error.localizedDescription)")
+                }
+            })
+        case .unavailable(let title, let message):
+            return AnyView(RoutineLinkUnavailableView(title: title, message: message))
         }
     }
 
@@ -1822,7 +2111,7 @@ private struct RoutineSessionView: View {
         switch state {
         case .untouched:
             return ""
-        case .done:
+        case .completed:
             return "Completed"
         case .skipped:
             return "Skipped"
@@ -1833,21 +2122,101 @@ private struct RoutineSessionView: View {
         currentIndex == totalCount - 1
     }
 
+    private func routineActionBar(
+        progress: HomeRoutineProgress,
+        steps: [RoutineItem],
+        height: CGFloat
+    ) -> some View {
+        let currentItem = steps.indices.contains(currentIndex) ? steps[currentIndex] : nil
+
+        return VStack {
+            Spacer(minLength: 0)
+            HStack(spacing: 18) {
+                Button {
+                    viewModel.undoLastRoutineAction(routineID: routineID)
+                } label: {
+                    VStack(spacing: 8) {
+                        Image(systemName: "arrow.uturn.backward.circle.fill")
+                            .font(.system(size: 28, weight: .semibold))
+                        Text("Undo")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 84)
+                    .foregroundStyle(progress.lastTouchedItem == nil ? Color.secondary : Color.primary)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(progress.lastTouchedItem == nil)
+
+                Button {
+                    guard let currentItem else {
+                        return
+                    }
+                    advance(stepID: currentItem.id, state: .skipped, totalCount: steps.count)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 28, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 84)
+                        .foregroundStyle(.white)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(Color.red)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(currentItem == nil)
+
+                Button {
+                    guard let currentItem else {
+                        return
+                    }
+                    advance(stepID: currentItem.id, state: .completed, totalCount: steps.count)
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 28, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 84)
+                        .foregroundStyle(.white)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(Color.green)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(currentItem == nil)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: height, alignment: .bottom)
+    }
+
     private func advance(stepID: UUID, state: RoutineStepCompletionState, totalCount: Int) {
+        let shouldDismiss = isLastStep(totalCount: totalCount)
         viewModel.setRoutineItem(routineID: routineID, itemID: stepID, state: state)
-        currentIndex = min(currentIndex + 1, totalCount)
+        if shouldDismiss {
+            dismiss()
+        } else {
+            currentIndex = min(currentIndex + 1, totalCount)
+        }
     }
 
     private func alignCurrentIndex(with progress: HomeRoutineProgress) {
         let steps = progress.routine.orderedItems
-        if currentIndex >= steps.count {
+        guard steps.isEmpty == false else {
+            currentIndex = 0
             return
         }
 
         if let firstUntouchedIndex = steps.firstIndex(where: {
             (progress.completionLog?.state(for: $0.id) ?? .untouched) == .untouched
         }) {
-            currentIndex = max(currentIndex, firstUntouchedIndex)
+            currentIndex = firstUntouchedIndex
         } else {
             currentIndex = steps.count
         }
@@ -2344,32 +2713,11 @@ private struct CaptureQuickAddPopover: View {
     }
 }
 
-private enum InboxConversionMode: String, CaseIterable, Identifiable {
-    case task
-    case shopping
-    case maybe
-    case note
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .task:
-            return "Task"
-        case .shopping:
-            return "Shopping"
-        case .maybe:
-            return "Maybe"
-        case .note:
-            return "Note"
-        }
-    }
-}
-
 @MainActor
 final class InboxReviewViewModel: ObservableObject {
     @Published private(set) var captures: [CaptureItem]
     @Published private(set) var projects: [Project]
+    @Published private(set) var candidateGroups: [CaptureCandidateGroup] = []
     @Published private(set) var errorMessage: String?
     @Published var selectedIndex = 0
 
@@ -2378,6 +2726,8 @@ final class InboxReviewViewModel: ObservableObject {
     private let captureRepository: any CaptureRepository
     private let projectItemRepository: any ProjectItemRepository
     private let shoppingRepository: any ShoppingRepository
+    private let musicPracticeRepository: any MusicPracticeRepository
+    private let captureCapabilityRegistry: CaptureCapabilityRegistry
     private let nowProvider: @Sendable () -> Date
 
     init(
@@ -2386,6 +2736,8 @@ final class InboxReviewViewModel: ObservableObject {
         captureRepository: any CaptureRepository,
         projectItemRepository: any ProjectItemRepository,
         shoppingRepository: any ShoppingRepository,
+        musicPracticeRepository: any MusicPracticeRepository,
+        captureCapabilityRegistry: CaptureCapabilityRegistry = .standard,
         initialCaptures: [CaptureItem],
         initialProjects: [Project],
         nowProvider: @escaping @Sendable () -> Date = Date.init
@@ -2395,6 +2747,8 @@ final class InboxReviewViewModel: ObservableObject {
         self.captureRepository = captureRepository
         self.projectItemRepository = projectItemRepository
         self.shoppingRepository = shoppingRepository
+        self.musicPracticeRepository = musicPracticeRepository
+        self.captureCapabilityRegistry = captureCapabilityRegistry
         self.captures = initialCaptures
         self.projects = initialProjects
         self.nowProvider = nowProvider
@@ -2408,6 +2762,18 @@ final class InboxReviewViewModel: ObservableObject {
         return captures[selectedIndex]
     }
 
+    var currentRawCapture: RawCapture? {
+        currentCapture.map(RawCapture.init(capture:))
+    }
+
+    var currentCandidateGroups: [CaptureCandidateGroup] {
+        guard let rawCapture = currentRawCapture else {
+            return []
+        }
+
+        return captureCapabilityRegistry.captureCandidateGroups(for: rawCapture)
+    }
+
     func load() {
         do {
             captures = try captureRepository.fetchCaptures(
@@ -2416,6 +2782,7 @@ final class InboxReviewViewModel: ObservableObject {
             )
             projects = try projectRepository.fetchProjects(includeArchived: false)
             selectedIndex = min(selectedIndex, max(captures.count - 1, 0))
+            candidateGroups = currentCandidateGroups
             errorMessage = nil
         } catch {
             errorMessage = "Unable to load inbox: \(error.localizedDescription)"
@@ -2454,47 +2821,6 @@ final class InboxReviewViewModel: ObservableObject {
         }
     }
 
-    func convertCurrentCaptureToProjectItem(
-        kind: ProjectItemKind,
-        title: String,
-        notes: String?,
-        projectID: UUID?,
-        source: String?,
-        pressure: ProjectItemPressure?,
-        reviewAfter: Date?
-    ) -> Bool {
-        guard var capture = currentCapture, let projectID else {
-            errorMessage = "Choose a project first."
-            return false
-        }
-
-        guard ProjectItem.cleanedTitle(from: title) != nil else {
-            errorMessage = "Enter a title."
-            return false
-        }
-
-        do {
-            let item = ProjectItem(
-                projectID: projectID,
-                kind: kind,
-                title: title,
-                notes: notes,
-                source: source,
-                pressure: kind == .maybe ? pressure : nil,
-                reviewAfter: kind == .maybe ? reviewAfter : nil,
-                createdAt: nowProvider()
-            )
-            try projectItemRepository.saveProjectItem(item, replacingProjectItemWithID: nil)
-            capture.markProcessed(at: nowProvider(), convertedProjectItemID: item.id)
-            try captureRepository.saveCapture(capture, replacingCaptureWithID: capture.id)
-            load()
-            return true
-        } catch {
-            errorMessage = "Unable to save project item: \(error.localizedDescription)"
-            return false
-        }
-    }
-
     func convertCurrentCaptureToShoppingItem(_ formData: ShoppingItemFormData) -> Bool {
         guard var capture = currentCapture else {
             return false
@@ -2518,6 +2844,23 @@ final class InboxReviewViewModel: ObservableObject {
         }
     }
 
+    func convertCurrentCaptureToPracticePiece(_ piece: PracticePiece) -> Bool {
+        guard var capture = currentCapture else {
+            return false
+        }
+
+        do {
+            try musicPracticeRepository.savePracticePiece(piece, replacingPieceWithID: nil)
+            capture.markProcessed(at: nowProvider())
+            try captureRepository.saveCapture(capture, replacingCaptureWithID: capture.id)
+            load()
+            return true
+        } catch {
+            errorMessage = "Unable to save practice piece: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func archiveCurrentCapture() -> Bool {
         guard var capture = currentCapture else {
             return false
@@ -2533,24 +2876,31 @@ final class InboxReviewViewModel: ObservableObject {
             return false
         }
     }
+
+    func tempSkipCurrentCapture() -> Bool {
+        guard captures.count > 1, captures.indices.contains(selectedIndex) else {
+            return false
+        }
+
+        let wasLastCapture = selectedIndex == captures.count - 1
+        let skippedCapture = captures.remove(at: selectedIndex)
+        captures.append(skippedCapture)
+        selectedIndex = wasLastCapture ? 0 : selectedIndex
+        errorMessage = nil
+        return true
+    }
 }
 
 struct InboxReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: InboxReviewViewModel
-    @State private var mode: InboxConversionMode = .task
+    @State private var selectedCandidate: CaptureCandidate?
+    @State private var showingTaskForm = false
+    @State private var showingShoppingForm = false
+    @State private var showingPracticeForm = false
     @State private var taskFormData = MyTaskFormData()
-    @State private var itemTitle = ""
-    @State private var itemNotes = ""
-    @State private var itemSource = ""
-    @State private var itemPressure: ProjectItemPressure? = .noPressure
-    @State private var itemHasReviewDate = false
-    @State private var itemReviewAfter = Date()
     @State private var shoppingFormData = ShoppingItemFormData()
-    @State private var selectedProjectID: UUID?
-    @State private var newProjectName = ""
-    @State private var showsTaskDetails = false
-    @State private var showsItemDetails = false
+    @State private var practicePiece: PracticePiece?
     let onInboxChanged: () -> Void
     let onDone: () -> Void
 
@@ -2560,6 +2910,7 @@ struct InboxReviewView: View {
         captureRepository: any CaptureRepository,
         projectItemRepository: any ProjectItemRepository,
         shoppingRepository: any ShoppingRepository,
+        musicPracticeRepository: any MusicPracticeRepository,
         initialCaptures: [CaptureItem],
         initialProjects: [Project],
         onInboxChanged: @escaping () -> Void = {},
@@ -2572,6 +2923,7 @@ struct InboxReviewView: View {
                 captureRepository: captureRepository,
                 projectItemRepository: projectItemRepository,
                 shoppingRepository: shoppingRepository,
+                musicPracticeRepository: musicPracticeRepository,
                 initialCaptures: initialCaptures,
                 initialProjects: initialProjects
             )
@@ -2586,25 +2938,63 @@ struct InboxReviewView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         captureCard(capture)
-                        Picker("Convert", selection: $mode) {
-                            ForEach(InboxConversionMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
+
+                        if let errorMessage = viewModel.errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+
+                        ForEach(viewModel.currentCandidateGroups) { group in
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(group.title)
+                                    .font(.headline)
+                                ForEach(group.candidates) { candidate in
+                                    Button {
+                                        selectedCandidate = candidate
+                                        openCandidate(candidate)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            Label(candidate.moduleID.displayName, systemImage: "square.grid.2x2")
+                                                .font(.subheadline.weight(.semibold))
+                                            Text(candidate.title)
+                                                .font(.headline)
+                                            Text(candidate.subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            Text(candidate.primaryActionTitle)
+                                                .font(.caption.weight(.semibold))
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
                             }
                         }
-                        .pickerStyle(.segmented)
 
-                        conversionForm(for: capture)
-
-                        Button(role: .destructive) {
-                            if viewModel.archiveCurrentCapture() {
-                                onInboxChanged()
-                                resetDrafts()
+                        HStack(spacing: 10) {
+                            Button {
+                                if viewModel.tempSkipCurrentCapture() {
+                                    resetDrafts()
+                                }
+                            } label: {
+                                Label("Later", systemImage: "arrow.uturn.backward.circle")
+                                    .frame(maxWidth: .infinity)
                             }
-                        } label: {
-                            Label("Archive Capture", systemImage: "archivebox")
-                                .frame(maxWidth: .infinity)
+                            .buttonStyle(.bordered)
+                            .disabled(viewModel.captures.count < 2)
+
+                            Button(role: .destructive) {
+                                if viewModel.archiveCurrentCapture() {
+                                    onInboxChanged()
+                                    resetDrafts()
+                                }
+                            } label: {
+                                Label("Archive Capture", systemImage: "archivebox")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
                     }
                     .padding()
                 }
@@ -2633,8 +3023,50 @@ struct InboxReviewView: View {
         .onChange(of: viewModel.currentCapture?.id) { _, _ in
             resetDrafts()
         }
-        .onDisappear {
-            onInboxChanged()
+        .sheet(isPresented: $showingTaskForm) {
+            NavigationStack {
+                TaskFormView(
+                    mode: .create,
+                    initialFormData: taskFormData,
+                    projects: viewModel.projects,
+                    reservedTaskIDs: Set(viewModel.captures.map(\.id))
+                ) { task in
+                    if viewModel.convertCurrentCaptureToTask(MyTaskFormData(task: task)) {
+                        onInboxChanged()
+                        showingTaskForm = false
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingShoppingForm) {
+            NavigationStack {
+                ShoppingItemFormView(
+                    initialItem: ShoppingItem(
+                        title: shoppingFormData.title,
+                        notes: shoppingFormData.notes,
+                        category: shoppingFormData.category,
+                        storeType: shoppingFormData.storeType,
+                        storeName: shoppingFormData.storeName,
+                        urgency: shoppingFormData.urgency,
+                        necessity: shoppingFormData.necessity
+                    )
+                ) { item in
+                    if viewModel.convertCurrentCaptureToShoppingItem(ShoppingItemFormData(item: item)) {
+                        onInboxChanged()
+                        showingShoppingForm = false
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingPracticeForm) {
+            NavigationStack {
+                PracticePieceFormView(initialPiece: practicePiece) { piece in
+                    if viewModel.convertCurrentCaptureToPracticePiece(piece) {
+                        onInboxChanged()
+                        showingPracticeForm = false
+                    }
+                }
+            }
         }
     }
 
@@ -2656,353 +3088,25 @@ struct InboxReviewView: View {
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    @ViewBuilder
-    private func conversionForm(for capture: CaptureItem) -> some View {
-        if let errorMessage = viewModel.errorMessage {
-            Text(errorMessage)
-                .font(.footnote)
-                .foregroundStyle(.red)
-        }
-
-        switch mode {
-        case .task:
-            taskConversionForm
-        case .shopping:
-            shoppingConversionForm
-        case .maybe:
-            projectItemConversionForm(kind: .maybe)
-        case .note:
-            projectItemConversionForm(kind: .note)
-        }
-    }
-
-    private var taskConversionForm: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Essential Details")
-                    .font(.headline)
-
-                inboxLabeledField("Title") {
-                    TextField("What needs to happen?", text: $taskFormData.title)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                inboxLabeledField("Project") {
-                    projectPicker(selection: $taskFormData.projectID, requiresProject: false)
-                }
-
-                inboxLabeledField("Duration") {
-                    EstimatedDurationControl(estimatedMinutesText: $taskFormData.estimatedMinutesText)
-                }
-            }
-
-            DisclosureGroup(isExpanded: $showsTaskDetails) {
-                VStack(alignment: .leading, spacing: 14) {
-                    inboxLabeledField("Notes") {
-                        TextField("Optional context", text: $taskFormData.notesText, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(2...5)
-                    }
-
-                    DisclosureGroup("Schedule and Status") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Toggle("Set Due Date", isOn: $taskFormData.hasDueDate)
-                            if taskFormData.hasDueDate {
-                                inboxLabeledField("Due") {
-                                    DatePicker(
-                                        "Due",
-                                        selection: $taskFormData.dueDate,
-                                        displayedComponents: [.date, .hourAndMinute]
-                                    )
-                                    .labelsHidden()
-                                }
-                            }
-
-                            Picker("Status", selection: $taskFormData.status) {
-                                ForEach(TaskStatus.allCases, id: \.self) { status in
-                                    Text(status.displayName).tag(status)
-                                }
-                            }
-                        }
-                        .padding(.top, 8)
-                    }
-
-                    DisclosureGroup("Planning Context") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Picker("Priority", selection: $taskFormData.priority) {
-                                Text("None").tag(nil as PriorityLevel?)
-                                ForEach(PriorityLevel.allCases, id: \.self) { priority in
-                                    Text(priority.displayName).tag(priority as PriorityLevel?)
-                                }
-                            }
-
-                            Picker("Energy", selection: $taskFormData.energyLevel) {
-                                Text("None").tag(nil as EnergyLevel?)
-                                ForEach(EnergyLevel.allCases, id: \.self) { energy in
-                                    Text(energy.displayName).tag(energy as EnergyLevel?)
-                                }
-                            }
-
-                            Picker("Mode", selection: $taskFormData.workMode) {
-                                Text("None").tag(nil as WorkModeKind?)
-                                ForEach(WorkModeKind.allCases, id: \.self) { workMode in
-                                    Text(workMode.displayName).tag(workMode as WorkModeKind?)
-                                }
-                            }
-
-                            inboxLabeledField("Tags") {
-                                TextField("Comma-separated tags", text: $taskFormData.tagsText)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                        }
-                        .padding(.top, 8)
-                    }
-                }
-                .padding(.top, 10)
-            } label: {
-                Label("Detailed Task Info", systemImage: "slider.horizontal.3")
-                    .font(.subheadline.weight(.semibold))
-            }
-
-            Button {
-                if viewModel.convertCurrentCaptureToTask(taskFormData) {
-                    onInboxChanged()
-                }
-            } label: {
-                Label("Create Task", systemImage: "checklist")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(taskFormData.validationMessage(reservedTaskIDs: []) != nil)
-        }
-    }
-
-    private func projectItemConversionForm(kind: ProjectItemKind) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Essential Details")
-                    .font(.headline)
-
-                inboxLabeledField("Title") {
-                    TextField("\(kind.displayName) title", text: $itemTitle)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                inboxLabeledField("Project") {
-                    projectPicker(selection: $selectedProjectID, requiresProject: true)
-                }
-            }
-
-            DisclosureGroup(isExpanded: $showsItemDetails) {
-                VStack(alignment: .leading, spacing: 14) {
-                    inboxLabeledField("Notes") {
-                        TextField("Optional context", text: $itemNotes, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(2...5)
-                    }
-
-                    inboxLabeledField("Source") {
-                        TextField("Where did this come from?", text: $itemSource)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    if kind == .maybe {
-                        DisclosureGroup("Review Settings") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Picker("Pressure", selection: $itemPressure) {
-                                    Text("None").tag(nil as ProjectItemPressure?)
-                                    ForEach(ProjectItemPressure.allCases, id: \.self) { pressure in
-                                        Text(pressure.displayName).tag(pressure as ProjectItemPressure?)
-                                    }
-                                }
-
-                                Toggle("Review Later", isOn: $itemHasReviewDate)
-                                if itemHasReviewDate {
-                                    inboxLabeledField("Review") {
-                                        DatePicker(
-                                            "Review",
-                                            selection: $itemReviewAfter,
-                                            displayedComponents: [.date]
-                                        )
-                                        .labelsHidden()
-                                    }
-                                }
-                            }
-                            .padding(.top, 8)
-                        }
-                    }
-                }
-                .padding(.top, 10)
-            } label: {
-                Label("Detailed \(kind.displayName) Info", systemImage: "slider.horizontal.3")
-                    .font(.subheadline.weight(.semibold))
-            }
-
-            Button {
-                if viewModel.convertCurrentCaptureToProjectItem(
-                    kind: kind,
-                    title: itemTitle,
-                    notes: itemNotes,
-                    projectID: selectedProjectID,
-                    source: itemSource,
-                    pressure: itemPressure,
-                    reviewAfter: itemHasReviewDate ? itemReviewAfter : nil
-                ) {
-                    onInboxChanged()
-                }
-            } label: {
-                Label("Save \(kind.displayName)", systemImage: kind == .maybe ? "sparkle.magnifyingglass" : "note.text")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(ProjectItem.cleanedTitle(from: itemTitle) == nil || selectedProjectID == nil)
-        }
-    }
-
-    private func inboxLabeledField<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            content()
-        }
-    }
-
-    private var shoppingConversionForm: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Item")
-                    .font(.headline)
-
-                TextField("Shopping item", text: $shoppingFormData.title)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Notes", text: $shoppingFormData.notes, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(2...5)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Trip")
-                    .font(.headline)
-
-                shoppingSuggestionField(
-                    title: "Category",
-                    text: $shoppingFormData.category,
-                    suggestions: ShoppingItemFieldSuggestions.categories
-                )
-                shoppingSuggestionField(
-                    title: "Store Type",
-                    text: $shoppingFormData.storeType,
-                    suggestions: ShoppingItemFieldSuggestions.storeTypes
-                )
-                shoppingSuggestionField(
-                    title: "Store",
-                    text: $shoppingFormData.storeName,
-                    suggestions: ShoppingItemFieldSuggestions.storeNames
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Priority")
-                    .font(.headline)
-
-                Picker("Urgency", selection: $shoppingFormData.urgency) {
-                    ForEach(ShoppingUrgency.allCases, id: \.self) { urgency in
-                        Text(urgency.displayName).tag(urgency)
-                    }
-                }
-
-                Picker("Necessity", selection: $shoppingFormData.necessity) {
-                    ForEach(ShoppingNecessity.allCases, id: \.self) { necessity in
-                        Text(necessity.displayName).tag(necessity)
-                    }
-                }
-            }
-
-            Button {
-                if viewModel.convertCurrentCaptureToShoppingItem(shoppingFormData) {
-                    onInboxChanged()
-                }
-            } label: {
-                Label("Add Shopping Item", systemImage: "cart")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(ShoppingItem.cleanedTitle(from: shoppingFormData.title) == nil)
-        }
-    }
-
-    private func shoppingSuggestionField(
-        title: String,
-        text: Binding<String>,
-        suggestions: [String]
-    ) -> some View {
-        HStack {
-            TextField(title, text: text)
-                .textFieldStyle(.roundedBorder)
-
-            Menu {
-                ForEach(suggestions, id: \.self) { suggestion in
-                    Button(suggestion) {
-                        text.wrappedValue = suggestion
-                    }
-                }
-            } label: {
-                Image(systemName: "text.badge.plus")
-            }
-            .accessibilityLabel("\(title) Suggestions")
-        }
-    }
-
-    private func projectPicker(selection: Binding<UUID?>, requiresProject: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker(requiresProject ? "Project Required" : "Project", selection: selection) {
-                if requiresProject == false {
-                    Text("None").tag(nil as UUID?)
-                }
-                ForEach(viewModel.projects) { project in
-                    Text(project.name).tag(project.id as UUID?)
-                }
-            }
-
-            HStack(spacing: 8) {
-                TextField("New project", text: $newProjectName)
-                    .textFieldStyle(.roundedBorder)
-                Button("Create") {
-                    if let project = viewModel.createProject(named: newProjectName) {
-                        selection.wrappedValue = project.id
-                        newProjectName = ""
-                    }
-                }
-                .disabled(Project.cleanedName(from: newProjectName) == nil)
-            }
-        }
-    }
-
     private func resetDrafts() {
         guard let capture = viewModel.currentCapture else {
             return
         }
 
-        taskFormData = MyTaskFormData(
-            title: capture.title,
-            projectID: capture.projectID
-        )
-        itemTitle = capture.title
-        itemNotes = capture.notes ?? ""
-        itemSource = capture.source ?? ""
-        selectedProjectID = capture.projectID
-        shoppingFormData = ShoppingItemFormData(
-            title: capture.title,
-            notes: capture.notes ?? ""
-        )
-        showsTaskDetails = false
-        showsItemDetails = false
+        taskFormData = MyTaskFormData(title: capture.title, notesText: capture.notes ?? "", projectID: capture.projectID)
+        shoppingFormData = ShoppingItemFormData(title: capture.title, notes: capture.notes ?? "")
+        practicePiece = PracticePiece(title: capture.title, notes: capture.notes)
+        selectedCandidate = viewModel.currentCandidateGroups.first?.candidates.first
+    }
+
+    private func openCandidate(_ candidate: CaptureCandidate) {
+        if candidate.taskFormData != nil {
+            showingTaskForm = true
+        } else if candidate.shoppingFormData != nil {
+            showingShoppingForm = true
+        } else if candidate.practicePiece != nil {
+            showingPracticeForm = true
+        }
     }
 }
 
@@ -3966,7 +4070,7 @@ private struct CalendarBlockFocusSheet: View {
 
             if draft.isNoFocusNeeded == false {
                 Section("Suggested tasks") {
-                    if let selectedProject {
+                    if selectedProject != nil {
                         if suggestedTasks.isEmpty {
                             Text("No open tasks for this project.")
                                 .font(.footnote)
@@ -3979,7 +4083,11 @@ private struct CalendarBlockFocusSheet: View {
                                     } label: {
                                         HStack(alignment: .top, spacing: 10) {
                                             Image(systemName: draft.selectedTaskIDs.contains(task.id) ? "checkmark.square.fill" : "square")
-                                                .foregroundStyle(draft.selectedTaskIDs.contains(task.id) ? .accentColor : .secondary)
+                                                .foregroundStyle(
+                                                    draft.selectedTaskIDs.contains(task.id)
+                                                        ? Color.accentColor
+                                                        : Color.secondary
+                                                )
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(task.title)
                                                     .font(.subheadline.weight(.medium))
@@ -4056,21 +4164,32 @@ private struct CalendarBlockFocusSheet: View {
     }
 
     private func save() {
-        var updatedDraft = draft
-        updatedDraft.updatedAt = .now
-        updatedDraft.titleSnapshot = event.title
-        updatedDraft.startDateSnapshot = event.start
-        updatedDraft.endDateSnapshot = event.end
-        updatedDraft.isProjectLinkUserConfirmed = updatedDraft.linkedProjectID != nil && updatedDraft.isNoFocusNeeded == false
-        updatedDraft.eventIdentifier = event.identifier ?? updatedDraft.eventIdentifier
-        updatedDraft.calendarIdentifier = event.calendarIdentifier ?? updatedDraft.calendarIdentifier
-        updatedDraft.eventKey = DebriefEventKey.from(
+        let updatedEventIdentifier = event.identifier ?? draft.eventIdentifier
+        let updatedCalendarIdentifier = event.calendarIdentifier ?? draft.calendarIdentifier
+        let updatedEventKey = DebriefEventKey.from(
             eventIdentifier: event.identifier,
             title: event.title,
             start: event.start,
             end: event.end,
             calendarIdentifier: event.calendarIdentifier,
             calendarTitle: event.calendarTitle
+        )
+        let updatedDraft = CalendarBlockFocus(
+            id: draft.id,
+            eventKey: updatedEventKey,
+            eventIdentifier: updatedEventIdentifier,
+            calendarIdentifier: updatedCalendarIdentifier,
+            titleSnapshot: event.title,
+            startDateSnapshot: event.start,
+            endDateSnapshot: event.end,
+            linkedProjectID: draft.linkedProjectID,
+            selectedTaskIDs: draft.selectedTaskIDs,
+            intentionNote: draft.intentionNote,
+            preferredDebriefTemplateKind: draft.preferredDebriefTemplateKind,
+            isProjectLinkUserConfirmed: draft.linkedProjectID != nil && draft.isNoFocusNeeded == false,
+            isNoFocusNeeded: draft.isNoFocusNeeded,
+            createdAt: draft.createdAt,
+            updatedAt: .now
         )
         onSave(updatedDraft)
         dismiss()
@@ -4224,6 +4343,7 @@ private struct ProjectItemFormView: View {
         fitnessRepository: container.fitnessRepository,
         peopleMemoryRepository: container.peopleMemoryRepository,
         viceRepository: container.viceRepository,
+        calendarBlockFocusRepository: container.calendarBlockFocusRepository,
         debriefRepository: container.debriefRepository,
         financeRepository: container.financeRepository
     )
