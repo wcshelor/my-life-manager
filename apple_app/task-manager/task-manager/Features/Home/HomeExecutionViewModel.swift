@@ -5,6 +5,50 @@ protocol AppUpdateReminderTracking {
     func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary?
 }
 
+nonisolated struct HomeActionFeedback: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case success
+        case warning
+    }
+
+    let id = UUID()
+    let kind: Kind
+    let message: String
+
+    static func success(_ message: String) -> HomeActionFeedback {
+        HomeActionFeedback(kind: .success, message: message)
+    }
+
+    static func warning(_ message: String) -> HomeActionFeedback {
+        HomeActionFeedback(kind: .warning, message: message)
+    }
+}
+
+nonisolated struct HomeWelcomeMessageContext: Equatable, Sendable {
+    let now: Date
+    let calendar: Calendar
+}
+
+nonisolated enum HomeWelcomeMessageCatalog {
+    static let curatedMessages = [
+        "Small steps count.",
+        "Let's make today easier to start.",
+        "Nothing dramatic. Just the next good move.",
+        "Use the dashboard gently.",
+        "Pick one lever and move it.",
+        "Keep the next step simple.",
+        "Today only needs one honest pass.",
+        "Start where the friction is lowest."
+    ]
+
+    static func message(for context: HomeWelcomeMessageContext) -> String {
+        let startOfDay = context.calendar.startOfDay(for: context.now)
+        let dayIndex = context.calendar.ordinality(of: .day, in: .era, for: startOfDay) ?? 0
+        let index = abs(dayIndex) % curatedMessages.count
+        return curatedMessages[index]
+    }
+}
+
 nonisolated struct HomeAppUpdateReminderSummary: Equatable, Sendable {
     static let suggestedRefreshIntervalInDays = 7
 
@@ -397,6 +441,7 @@ final class HomeExecutionViewModel: ObservableObject {
     @Published private(set) var duePromises: [Promise] = []
     @Published private(set) var promiseHistory: [Promise] = []
     @Published private(set) var routineProgress: [HomeRoutineProgress] = []
+    @Published private(set) var routines: [Routine] = []
     @Published private(set) var activeShoppingItems: [ShoppingItem] = []
     @Published private(set) var shoppingHistory: [ShoppingItem] = []
     @Published private(set) var healthSummary = HomeHealthSummary(
@@ -415,6 +460,9 @@ final class HomeExecutionViewModel: ObservableObject {
     @Published private(set) var peopleMemorySummary = HomePeopleMemorySummary(
         people: [],
         now: Date()
+    )
+    @Published private(set) var welcomeMessage = HomeWelcomeMessageCatalog.message(
+        for: HomeWelcomeMessageContext(now: .now, calendar: .current)
     )
     @Published private(set) var appUpdateReminderSummary: HomeAppUpdateReminderSummary?
     @Published private(set) var vicesSummary = HomeVicesSummary(
@@ -602,10 +650,41 @@ final class HomeExecutionViewModel: ObservableObject {
         load()
     }
 
+    func repeatMostRecentViceLog() -> HomeActionFeedback {
+        guard let viceRepository else {
+            return .warning("No recent vice to repeat yet.")
+        }
+
+        do {
+            let activeVices = try viceRepository.fetchVices(includeArchived: false)
+            let logs = try viceRepository.fetchViceLogs()
+            guard let candidate = ViceLogRecorder.mostRecentRepeatableLog(
+                in: logs,
+                activeVices: activeVices
+            ) else {
+                return .warning("No recent vice to repeat yet.")
+            }
+
+            _ = try ViceLogRecorder.recordHit(
+                for: candidate.vice,
+                at: nowProvider(),
+                repository: viceRepository
+            )
+            load()
+            return .success("Logged \(candidate.vice.name).")
+        } catch {
+            return .warning("Couldn't repeat the last vice.")
+        }
+    }
+
     func load() {
         do {
             let now = nowProvider()
+            welcomeMessage = HomeWelcomeMessageCatalog.message(
+                for: HomeWelcomeMessageContext(now: now, calendar: calendar)
+            )
             appUpdateReminderSummary = appUpdateReminderTracker.refresh(now: now, calendar: calendar)
+            routines = try routineRepository.fetchRoutines()
             let activeRoutines = try routineRepository.fetchActiveRoutines(on: now, calendar: calendar)
             let logs = try routineRepository.fetchCompletionLogs(on: now, calendar: calendar)
             let logLookup = Dictionary(uniqueKeysWithValues: logs.map { ($0.routineID, $0) })

@@ -58,6 +58,7 @@ These are worth knowing because they are no longer just aspirational product not
 - Vices now have session grouping on top of atomic hit logs. Repeated hits inside the same window roll into a `ViceSession`, and session closure can queue one Debrief candidate instead of spamming multiple reflections.
 - Fitness quick-log flows can seed a draft from the most recent session for the same exercise, while still preserving explicit edit flows for existing logs.
 - Health Nutrition now has foundational calorie-and-macros plumbing under the existing lightweight meal log. Meals can carry multiple itemized entries, each entry stores per-serving nutrient snapshots, meals are oriented around timestamp plus itemized foods rather than meal types, and the Health repository now supports a starter searchable food catalog plus persisted custom foods.
+- Routines now have a dedicated module landing screen plus an in-routine editor. Routine sessions expose a top Edit action that pushes a step-list editor with add/reorder support, and routine module widgets inside steps can open the module landing page instead of the Home default action.
 
 ## Source Of Truth And Architecture
 
@@ -69,7 +70,7 @@ These contracts are central to the repo and should not be casually violated.
 - `ScheduledBlock` is the bridge between in-app planning and calendar events.
 - Planner logic should remain testable outside SwiftUI.
 - Business logic should live in models, repositories, services, and view models rather than in SwiftUI views.
-- Home widgets are lightweight summaries, quick actions, and module launch points.
+- Home widgets are lightweight summaries, module launch points, and quick actions. Quick actions can now be either navigation-style launches or in-place commands, depending on the widget definition.
 - Full workflows belong in feature/module screens.
 - Sync exists as scaffolding and exploration, not as an active end-user feature unless a task explicitly asks for sync work.
 
@@ -97,16 +98,21 @@ Implementation notes:
 - `HomeWidgetDefinition` describes a module widget's title, main destination, default quick actions, and available quick actions.
 - `HomeWidgetConfiguration` stores durable per-widget state, including selected quick action IDs, visibility, sort order, size, and legacy configuration values.
 - `HomeView` renders module widgets from registry definitions and widget configurations instead of hardcoding module-specific quick buttons in the view body.
+- Module widgets open their destination when the card body is tapped, while quick-action buttons run their own action directly.
+- `HomeWidgetQuickActionResolver` is the shared rule set for choosing up to two quick actions, and both Home widgets and routine-step module widgets use it.
+- Routine-step module widgets store their own quick-action selection on `RoutineStepLink`, so step-specific widget customization stays independent from the Home board.
+- Routine-step module widgets open dedicated module landing pages when tapped from a routine, while the Home board keeps its existing default-action behavior.
 - Long-pressing a widget enters edit mode in the iPhone-home-screen style. In edit mode, the tile itself can be tapped to edit quick actions, and resize/remove controls remain available in the widget chrome.
 - Module widgets render up to two configurable quick-action buttons inside the card instead of using the old small-card numeric summary slot.
 - Quick-action choices are capped at two per widget. Invalid or deleted quick-action IDs are filtered out when widgets are rendered, and registry defaults are used until the user customizes the widget.
+- The Home screen now uses a small curated welcome banner and transient inline feedback for in-place command actions such as the Vices repeat-last quick action.
 - The Home board also includes an App Refresh widget that records the last sideloaded build timestamp and shows a weekly reinstall reminder on Home.
 
 To add a new widget-enabled module:
 
 1. Add the module's main widget descriptor and module definition in `HomeWidgetModels.swift`.
 2. Declare the module's available quick actions in its `HomeWidgetDefinition`.
-3. Map the quick action IDs to routing behavior in `HomeView`'s generic quick-action handler.
+3. Map the quick action IDs and action behavior to routing/command behavior in `HomeView`'s generic quick-action handler.
 4. Add the module widget to the default Home layout if it should appear on first launch.
 
 On first launch or when Home layout data is missing, the app seeds a deterministic default layout and the module widget defaults come from the registry definition.
@@ -478,6 +484,7 @@ These are worth knowing before editing:
 - `Features/Home/HomeView.swift` and some feature views are large enough that compiler type-check performance can become a productively important constraint, not just a cosmetic concern.
 - `ContentView.swift` still presents only four tabs even though the product surface is broader.
 - Multiple newer domains are reachable from Home widgets or Home-linked navigation rather than from dedicated top-level tabs.
+- Promises and Routines now also have dedicated feature screens under `Features/Promises/PromisesFeatureViews.swift` and `Features/Routines/RoutinesFeatureViews.swift`, while Shopping has a reusable quick-add sheet at `Features/Shopping/ShoppingQuickAddSheet.swift`.
 - Some product docs describe target behavior that is directionally true but not fully implemented.
 - Existing user changes may be present in the worktree; do not revert unrelated edits.
 
@@ -561,6 +568,7 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │   │   ├── HomeLayoutViewModel.swift
 │       │   │   │   ├── HomeView.swift
 │       │   │   │   └── Widgets
+│       │   │   │       ├── HomeWidgetQuickActionSelectionView.swift
 │       │   │   │       └── HomeWidgetRendering.swift
 │       │   │   ├── Logs
 │       │   │   │   └── LogsFeatureNotes.md
@@ -574,6 +582,8 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │   │   ├── PlannerPresentationModels.swift
 │       │   │   │   ├── PlannerTimelineSelection.swift
 │       │   │   │   └── PlannerViewModel.swift
+│       │   │   ├── Promises
+│       │   │   │   └── PromisesFeatureViews.swift
 │       │   │   ├── Debrief
 │       │   │   │   └── DebriefViews.swift
 │       │   │   ├── Practice
@@ -581,12 +591,14 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │   ├── Reflection
 │       │   │   │   └── ReflectionFeatureNotes.md
 │       │   │   ├── Routines
-│       │   │   │   └── RoutinesFeatureNotes.md
+│       │   │   │   ├── RoutinesFeatureNotes.md
+│       │   │   │   └── RoutinesFeatureViews.swift
 │       │   │   ├── Settings
 │       │   │   │   └── SettingsView.swift
 │       │   │   ├── Shopping
 │       │   │   │   ├── ShoppingListView.swift
-│       │   │   │   └── ShoppingListViewModel.swift
+│       │   │   │   ├── ShoppingListViewModel.swift
+│       │   │   │   └── ShoppingQuickAddSheet.swift
 │       │   │   ├── Sync
 │       │   │   │   ├── SyncSettingsView.swift
 │       │   │   │   ├── SyncStatusView.swift

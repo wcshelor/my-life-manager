@@ -130,6 +130,7 @@ struct HomeExecutionViewModelTests {
         viewModel.loadIfNeeded()
 
         #expect(viewModel.activePromises == [promise])
+        #expect(viewModel.routines == [routine])
         #expect(viewModel.routineProgress.count == 1)
         #expect(viewModel.routineProgress.first?.completedCount == 1)
     }
@@ -183,6 +184,79 @@ struct HomeExecutionViewModelTests {
         #expect(viewModel.vicesSummary.activeViceCount == 1)
         #expect(viewModel.vicesSummary.totalTodayCount == 1)
         #expect(viewModel.vicesSummary.detail == "1 logged today")
+    }
+
+    @Test func todayViewModelUsesStableWelcomeMessageAcrossRepeatedLoads() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: FakeRoutineRepository(),
+            nowProvider: { now }
+        )
+
+        viewModel.load()
+        let firstMessage = viewModel.welcomeMessage
+        viewModel.load()
+
+        #expect(firstMessage == viewModel.welcomeMessage)
+        #expect(firstMessage.isEmpty == false)
+    }
+
+    @Test func todayViewModelRepeatsMostRecentActiveViceLogFromHome() {
+        let now = Date(timeIntervalSince1970: 50_000)
+        let archivedVice = Vice(name: "Archived", unitLabel: "Hits", isArchived: true)
+        let activeVice = Vice(name: "Dab Pen", unitLabel: "Hits")
+        let otherActiveVice = Vice(name: "Coffee", unitLabel: "Cups")
+        let repository = FakeViceRepository(
+            vices: [archivedVice, activeVice, otherActiveVice],
+            logs: [
+                ViceLog(viceID: archivedVice.id, timestamp: now.addingTimeInterval(-30)),
+                ViceLog(viceID: otherActiveVice.id, timestamp: now.addingTimeInterval(-60)),
+                ViceLog(viceID: activeVice.id, timestamp: now.addingTimeInterval(-120))
+            ]
+        )
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: FakeRoutineRepository(),
+            viceRepository: repository,
+            nowProvider: { now }
+        )
+
+        viewModel.load()
+        let feedback = viewModel.repeatMostRecentViceLog()
+
+        #expect(feedback.kind == .success)
+        #expect(feedback.message == "Logged Coffee.")
+        #expect(repository.logs.count == 4)
+        #expect(repository.logs.last?.viceID == otherActiveVice.id)
+        #expect(repository.sessions.count == 1)
+        #expect(repository.sessions.first?.viceID == otherActiveVice.id)
+        #expect(repository.sessions.first?.hitCount == 1)
+        #expect(viewModel.vicesSummary.totalTodayCount == 4)
+    }
+
+    @Test func todayViewModelShowsWarningWhenNoRecentViceLogExists() {
+        let now = Date(timeIntervalSince1970: 60_000)
+        let activeVice = Vice(name: "Coffee", unitLabel: "Cups")
+        let repository = FakeViceRepository(vices: [activeVice], logs: [])
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: FakeRoutineRepository(),
+            viceRepository: repository,
+            nowProvider: { now }
+        )
+
+        viewModel.load()
+        let feedback = viewModel.repeatMostRecentViceLog()
+
+        #expect(feedback.kind == .warning)
+        #expect(feedback.message == "No recent vice to repeat yet.")
+        #expect(repository.logs.isEmpty)
+        #expect(repository.sessions.isEmpty)
+        #expect(viewModel.vicesSummary.totalTodayCount == 0)
     }
 
     @Test func todayViewModelResolvesPromiseAndUpdatesHistoryCounts() {
@@ -1319,13 +1393,16 @@ private final class FakeHomeFitnessRepository: FitnessRepository {
 private final class FakeViceRepository: ViceRepository {
     var vices: [Vice]
     var logs: [ViceLog]
+    var sessions: [ViceSession]
 
     init(
         vices: [Vice] = [],
-        logs: [ViceLog] = []
+        logs: [ViceLog] = [],
+        sessions: [ViceSession] = []
     ) {
         self.vices = vices
         self.logs = logs
+        self.sessions = sessions
     }
 
     func fetchVices(includeArchived: Bool) throws -> [Vice] {
@@ -1385,12 +1462,22 @@ private final class FakeViceRepository: ViceRepository {
     }
 
     func fetchViceSessions() throws -> [ViceSession] {
-        []
+        sessions.sortedForViceSessions()
     }
 
-    func saveViceSession(_ session: ViceSession) throws {}
+    func saveViceSession(_ session: ViceSession) throws {
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        } else if let index = sessions.firstIndex(where: { $0.viceID == session.viceID && $0.isActive(at: session.lastHitAt) }) {
+            sessions[index] = session
+        } else {
+            sessions.append(session)
+        }
+    }
 
-    func deleteViceSession(withID id: UUID) throws {}
+    func deleteViceSession(withID id: UUID) throws {
+        sessions.removeAll { $0.id == id }
+    }
 }
 
 @MainActor

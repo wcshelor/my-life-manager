@@ -28,7 +28,8 @@ struct SwiftDataRoutineRepositoryTests {
                     kind: .moduleWidget,
                     moduleWidgetKind: .shoppingModule,
                     displayTitle: "Shopping",
-                    displayOrder: 1
+                    displayOrder: 1,
+                    selectedQuickActionIDs: ["openShopping", "quickAddShopping"]
                 )
             ],
             createdAt: Date(timeIntervalSince1970: 1_000)
@@ -37,6 +38,57 @@ struct SwiftDataRoutineRepositoryTests {
         try repository.saveRoutine(routine, replacingRoutineWithID: nil)
 
         #expect(try repository.routine(withID: routine.id) == routine)
+    }
+
+    @Test @MainActor func routineRepositoryPersistsEditedRoutineStepOrderAndQuickActions() throws {
+        let repository = try makeRepository()
+        let firstItem = RoutineItem(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174222")!,
+            title: "Clear desk",
+            position: 0
+        )
+        let secondItem = RoutineItem(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174223")!,
+            title: "Set first task",
+            position: 1
+        )
+        let routine = Routine(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174224")!,
+            name: "Evening Reset",
+            items: [firstItem, secondItem],
+            stepLinks: [
+                RoutineStepLink(
+                    routineStepID: secondItem.id,
+                    kind: .moduleWidget,
+                    moduleWidgetKind: .shoppingModule,
+                    displayTitle: "Shopping",
+                    displayOrder: 0,
+                    selectedQuickActionIDs: ["openShopping", "quickAddShopping"]
+                )
+            ]
+        )
+        let editedRoutine = Routine(
+            id: routine.id,
+            name: "Evening Reset",
+            notes: "Close the day",
+            activeWeekdays: [.monday, .wednesday],
+            items: [
+                RoutineItem(id: secondItem.id, title: "Set first task", position: 0),
+                RoutineItem(id: firstItem.id, title: "Clear desk", position: 1),
+            ],
+            stepLinks: routine.stepLinks,
+            isArchived: false,
+            createdAt: routine.createdAt,
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        try repository.saveRoutine(routine, replacingRoutineWithID: nil)
+        try repository.saveRoutine(editedRoutine, replacingRoutineWithID: routine.id)
+
+        let reloaded = try #require(repository.routine(withID: routine.id))
+        #expect(reloaded.orderedItems.map(\.id) == [secondItem.id, firstItem.id])
+        #expect(reloaded.orderedStepLinks(for: secondItem.id).first?.selectedQuickActionIDs == ["openShopping", "quickAddShopping"])
+        #expect(reloaded == editedRoutine)
     }
 
     @Test @MainActor func routineRepositoryUpdatesWeekdaysInPlace() throws {

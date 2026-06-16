@@ -220,6 +220,65 @@ nonisolated struct ViceSessionDebriefCandidateFactory {
     }
 }
 
+nonisolated enum ViceLogRecorder {
+    @MainActor
+    static func recordHit(
+        for vice: Vice,
+        at timestamp: Date,
+        repository: any ViceRepository
+    ) throws -> ViceLog {
+        let log = ViceLog(
+            viceID: vice.id,
+            timestamp: timestamp,
+            amount: 1
+        )
+
+        try repository.saveViceLog(log)
+        try recordSession(for: vice, at: timestamp, repository: repository)
+        return log
+    }
+
+    static func mostRecentRepeatableLog(
+        in logs: [ViceLog],
+        activeVices: [Vice]
+    ) -> (vice: Vice, log: ViceLog)? {
+        let activeViceLookup = Dictionary(uniqueKeysWithValues: activeVices.map { ($0.id, $0) })
+        guard let log = logs.sortedForViceLogs().first(where: { activeViceLookup[$0.viceID] != nil }),
+              let vice = activeViceLookup[log.viceID] else {
+            return nil
+        }
+
+        return (vice: vice, log: log)
+    }
+
+    @MainActor
+    private static func recordSession(
+        for vice: Vice,
+        at timestamp: Date,
+        repository: any ViceRepository
+    ) throws {
+        let sessions = try repository.fetchViceSessions()
+        let activeSession = sessions.first(where: { session in
+            session.viceID == vice.id && session.isActive(at: timestamp)
+        })
+
+        if var session = activeSession {
+            session.hitCount += 1
+            session.lastHitAt = timestamp
+            try repository.saveViceSession(session)
+            return
+        }
+
+        let session = ViceSession(
+            viceID: vice.id,
+            startedAt: timestamp,
+            lastHitAt: timestamp,
+            hitCount: 1
+        )
+        try repository.saveViceSession(session)
+    }
+}
+
 extension Array where Element == ViceLog {
     func sortedForViceHistory() -> [ViceLog] {
         sortedForViceLogs()

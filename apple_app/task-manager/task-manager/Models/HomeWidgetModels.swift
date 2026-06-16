@@ -52,6 +52,52 @@ nonisolated enum HomeWidgetModule: String, Codable, CaseIterable, Sendable {
             return "Planned"
         }
     }
+
+    var landingTarget: HomeModuleLandingTarget? {
+        switch self {
+        case .capture, .app, .future:
+            return nil
+        case .tasks:
+            return .tasks
+        case .planner:
+            return .planner
+        case .projects:
+            return .projects
+        case .promises:
+            return .promises
+        case .routines:
+            return .routines
+        case .shopping:
+            return .shopping
+        case .health:
+            return .health
+        case .musicPractice:
+            return .musicPractice
+        case .fitness:
+            return .fitness
+        case .peopleMemory:
+            return .peopleMemory
+        case .vices:
+            return .vices
+        case .finance:
+            return .finance
+        }
+    }
+}
+
+nonisolated enum HomeModuleLandingTarget: Equatable, Sendable {
+    case tasks
+    case planner
+    case projects
+    case promises
+    case routines
+    case shopping
+    case health
+    case musicPractice
+    case fitness
+    case peopleMemory
+    case vices
+    case finance
 }
 
 nonisolated struct HomeWidgetKind: RawRepresentable, Codable, Hashable, CaseIterable, Sendable, ExpressibleByStringLiteral {
@@ -213,6 +259,21 @@ nonisolated struct WidgetQuickAction: Identifiable, Equatable, Sendable {
     let title: String
     let systemImage: String
     let role: ButtonRole?
+    let behavior: HomeWidgetQuickActionBehavior
+
+    init(
+        id: String,
+        title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        behavior: HomeWidgetQuickActionBehavior = .navigation
+    ) {
+        self.id = id
+        self.title = title
+        self.systemImage = systemImage
+        self.role = role
+        self.behavior = behavior
+    }
 }
 
 nonisolated struct HomeWidgetDefinition: Identifiable, Equatable, Sendable {
@@ -235,6 +296,172 @@ nonisolated struct HomeWidgetDefinition: Identifiable, Equatable, Sendable {
             }
         }
         return selected
+    }
+}
+
+nonisolated enum HomeWidgetQuickActionResolver {
+    static func resolvedQuickActionIDs(
+        selectedQuickActionIDs: [String],
+        definition: HomeWidgetDefinition?
+    ) -> [String] {
+        guard let definition else {
+            return normalizedQuickActionIDs(selectedQuickActionIDs)
+        }
+
+        let availableIDs = Set(definition.availableQuickActions.map(\.id))
+        let preferredIDs = selectedQuickActionIDs.isEmpty
+            ? definition.sanitizedDefaultQuickActionIDs
+            : selectedQuickActionIDs.filter { availableIDs.contains($0) }
+
+        return normalizedQuickActionIDs(preferredIDs)
+    }
+
+    static func resolvedQuickActions(
+        selectedQuickActionIDs: [String],
+        descriptor: HomeWidgetDescriptor?,
+        definition: HomeWidgetDefinition?
+    ) -> [WidgetQuickAction] {
+        guard let definition else {
+            return fallbackQuickAction(for: descriptor?.defaultAction)
+        }
+
+        let resolvedIDs = resolvedQuickActionIDs(
+            selectedQuickActionIDs: selectedQuickActionIDs,
+            definition: definition
+        )
+        let selectedActions = definition.availableQuickActions.filter { resolvedIDs.contains($0.id) }
+
+        if selectedActions.isEmpty {
+            return fallbackQuickAction(for: descriptor?.defaultAction, identifierSeed: descriptor?.kind.rawValue ?? definition.moduleID)
+        }
+
+        return selectedActions
+    }
+
+    static func resolvedQuickActions(
+        for configuration: HomeWidgetConfiguration,
+        descriptor: HomeWidgetDescriptor?,
+        definition: HomeWidgetDefinition?
+    ) -> [WidgetQuickAction] {
+        resolvedQuickActions(
+            selectedQuickActionIDs: configuration.selectedQuickActionIDs,
+            descriptor: descriptor,
+            definition: definition
+        )
+    }
+
+    static func normalizedQuickActionIDs(_ quickActionIDs: [String], maxCount: Int = 2) -> [String] {
+        var selected: [String] = []
+
+        for actionID in quickActionIDs {
+            guard selected.contains(actionID) == false else {
+                continue
+            }
+
+            selected.append(actionID)
+
+            if selected.count == maxCount {
+                break
+            }
+        }
+
+        return selected
+    }
+
+    static func fallbackQuickAction(
+        for action: HomeWidgetDefaultAction?,
+        identifierSeed: String = "default"
+    ) -> [WidgetQuickAction] {
+        guard let action else {
+            return []
+        }
+
+        return [
+            WidgetQuickAction(
+                id: "default-\(identifierSeed)",
+                title: title(for: action),
+                systemImage: icon(for: action),
+                role: nil
+            )
+        ]
+    }
+
+    private static func title(for action: HomeWidgetDefaultAction) -> String {
+        switch action {
+        case .openCapture:
+            return "Capture"
+        case .reviewInbox:
+            return "Review"
+        case .openTasks:
+            return "Open Tasks"
+        case .openPlanner:
+            return "Open Planner"
+        case .openDebriefs:
+            return "Debriefs"
+        case .openProjects:
+            return "Open Projects"
+        case .openConfiguredProject:
+            return "Open Project"
+        case .newPromise:
+            return "New Promise"
+        case .checkInDuePromise:
+            return "Check In"
+        case .newRoutine:
+            return "New Routine"
+        case .openConfiguredRoutine:
+            return "Open Routine"
+        case .openShopping:
+            return "Open Shopping"
+        case .quickAddShopping:
+            return "Add Item"
+        case .openHealth:
+            return "Open Health"
+        case .openMusicPractice:
+            return "Open Practice"
+        case .openFitness:
+            return "Open Fitness"
+        case .openPeopleMemory:
+            return "Open People"
+        case .openVices:
+            return "Open Vices"
+        case .openFinance:
+            return "Open Finance"
+        }
+    }
+
+    private static func icon(for action: HomeWidgetDefaultAction) -> String {
+        switch action {
+        case .openCapture:
+            return "tray.and.arrow.down"
+        case .reviewInbox:
+            return "tray.full.fill"
+        case .openTasks:
+            return "checklist"
+        case .openPlanner, .openConfiguredRoutine:
+            return "calendar"
+        case .openDebriefs:
+            return "arrow.trianglehead.2.clockwise.rotate.90"
+        case .openProjects, .openConfiguredProject:
+            return "folder.fill"
+        case .newPromise, .checkInDuePromise:
+            return "hand.raised.fill"
+        case .newRoutine:
+            return "checklist.checked"
+        case .openShopping, .quickAddShopping:
+            return "cart.fill"
+        case .openHealth:
+            return "heart.text.square"
+        case .openMusicPractice:
+            return "music.note.list"
+        case .openFitness:
+            return "dumbbell.fill"
+        case .openPeopleMemory:
+            return "person.2.fill"
+        case .openVices:
+            return "flame.fill"
+        case .openFinance:
+            return "creditcard.fill"
+        }
     }
 }
 
@@ -433,6 +660,15 @@ nonisolated struct HomeWidgetConfigurationField: Equatable, Sendable {
     let key: String
     let displayName: String
     let kind: HomeWidgetConfigurationFieldKind
+}
+
+nonisolated enum HomeWidgetQuickActionBehavior: Equatable, Sendable {
+    case navigation
+    case command(HomeWidgetQuickActionCommand)
+}
+
+nonisolated enum HomeWidgetQuickActionCommand: Equatable, Sendable {
+    case repeatMostRecentViceLog
 }
 
 nonisolated enum HomeWidgetDefaultAction: Equatable, Sendable {
@@ -995,10 +1231,15 @@ nonisolated struct HomeWidgetRegistry: Equatable, Sendable {
                 mainDestination: .openVices,
                 defaultQuickActionIDs: ["logHit", "activeSession"],
                 availableQuickActions: [
-                    WidgetQuickAction(id: "logHit", title: "Log Hit", systemImage: "plus", role: nil),
-                    WidgetQuickAction(id: "activeSession", title: "Active Session", systemImage: "timer", role: nil),
-                    WidgetQuickAction(id: "debrief", title: "Debrief", systemImage: "text.bubble", role: nil),
-                    WidgetQuickAction(id: "history", title: "History", systemImage: "clock.arrow.circlepath", role: nil),
+                    WidgetQuickAction(
+                        id: "logHit",
+                        title: "Repeat Last",
+                        systemImage: "arrow.clockwise",
+                        behavior: .command(.repeatMostRecentViceLog)
+                    ),
+                    WidgetQuickAction(id: "activeSession", title: "Active Session", systemImage: "timer"),
+                    WidgetQuickAction(id: "debrief", title: "Debrief", systemImage: "text.bubble"),
+                    WidgetQuickAction(id: "history", title: "History", systemImage: "clock.arrow.circlepath"),
                 ]
             ),
             HomeWidgetDefinition(

@@ -83,6 +83,8 @@ struct HomeView: View {
     @State private var draggingWidgetID: UUID?
     @State private var previewDropTarget: PreviewDropTarget?
     @State private var editingWidget: HomeWidgetInstance?
+    @State private var homeActionFeedback: HomeActionFeedback?
+    @State private var homeActionFeedbackDismissTask: Task<Void, Never>?
     private let widgetRendererRegistry = HomeWidgetRendererRegistry.standard
 
     private let taskRepository: any TaskRepository
@@ -223,7 +225,12 @@ struct HomeView: View {
                         )
                 }
             }
-            .navigationTitle("Home")
+            .overlay(alignment: .bottom) {
+                homeActionFeedbackOverlay
+            }
+            .onDisappear {
+                cancelHomeActionFeedback()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(isEditingHome ? "Done" : "Edit") {
@@ -266,7 +273,29 @@ struct HomeView: View {
             }
             .sheet(item: $editingWidget) { widget in
                 NavigationStack {
-                    widgetQuickActionEditor(for: widget)
+                    if let definition = widgetDefinition(for: widget) {
+                        HomeWidgetQuickActionSelectionView(
+                            title: "Edit Widget",
+                            subtitle: definition.title,
+                            availableQuickActions: definition.availableQuickActions,
+                            selectedQuickActionIDs: HomeWidgetQuickActionResolver.resolvedQuickActionIDs(
+                                selectedQuickActionIDs: widget.configuration.selectedQuickActionIDs,
+                                definition: definition
+                            )
+                        ) { selectedIDs in
+                            updateQuickActionSelection(selectedIDs, widgetID: widget.id)
+                        }
+                    } else {
+                        ContentUnavailableView("No Quick Actions", systemImage: "slider.horizontal.3")
+                            .navigationTitle("Edit Widget")
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") {
+                                        editingWidget = nil
+                                    }
+                                }
+                            }
+                    }
                 }
             }
             .navigationDestination(for: NavigationDestination.self) { destination in
@@ -309,7 +338,7 @@ struct HomeView: View {
             return AnyView(AddHomeWidgetView(
                 viewModel: homeViewModel,
                 projects: viewModel.projects,
-                routines: viewModel.routineProgress.map(\.routine)
+                routines: viewModel.routines
             ) {
                 presentedSheet = nil
             })
@@ -359,8 +388,8 @@ struct HomeView: View {
                 }
             ))
         case .routineBuilder:
-            return AnyView(RoutineBuilderView { routine in
-                viewModel.saveRoutine(routine)
+            return AnyView(RoutineEditorView(routine: nil) { routine, originalID in
+                viewModel.saveRoutine(routine, replacingRoutineWithID: originalID)
                 presentedSheet = nil
             })
         case .routineSession(let routineID):
@@ -486,7 +515,7 @@ struct HomeView: View {
     private var homeBoard: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: isCompactWidth ? 18 : 22) {
-                header
+                welcomeBanner
 
                 errorMessages
 
@@ -726,168 +755,121 @@ struct HomeView: View {
         }
     }
 
-    private func resolvedQuickActionIDs(for widget: HomeWidgetInstance) -> [String] {
-        guard let definition = widgetDefinition(for: widget) else {
-            return []
-        }
-
-        let availableIDs = Set(definition.availableQuickActions.map(\.id))
-        let selectedIDs = widget.configuration.selectedQuickActionIDs.isEmpty
-            ? definition.sanitizedDefaultQuickActionIDs
-            : widget.configuration.selectedQuickActionIDs.filter { availableIDs.contains($0) }
-
-        return Array(selectedIDs.prefix(2))
-    }
-
-    private func performQuickAction(_ actionID: String, for widget: HomeWidgetInstance) {
+    private func performQuickAction(_ action: WidgetQuickAction, for widget: HomeWidgetInstance) {
         guard isEditingHome == false else {
             return
         }
-        guard let definition = widgetDefinition(for: widget) else {
-            return
-        }
 
-        switch actionID {
-        case "addTask":
-            presentedSheet = .inboxReview
-        case "today":
-            navigationPath.append(.planner)
-        case "capture":
-            presentCaptureOverlay()
-        case "overdue":
-            navigationPath.append(.tasks)
-        case "openProjects", "pinnedProjects", "projectFocus", "projectInbox":
-            navigationPath.append(.projects)
-        case "newPromise":
-            presentedSheet = .promiseForm
-        case "checkInDue":
-            if let promise = viewModel.duePromises.first {
-                presentedSheet = .promiseCheckIn(promise)
-            } else {
-                presentedSheet = .promiseForm
+        switch action.behavior {
+        case .command(let command):
+            performQuickActionCommand(command)
+        case .navigation:
+            guard let definition = widgetDefinition(for: widget) else {
+                return
             }
-        case "activePromises":
-            presentedSheet = .promiseForm
-        case "newRoutine":
-            presentedSheet = .routineBuilder
-        case "todayRoutines":
-            if let routineID = viewModel.routineProgress.first?.routine.id {
-                presentedSheet = .routineSession(routineID)
-            } else {
-                presentedSheet = .routineBuilder
-            }
-        case "currentStep":
-            if let routineID = viewModel.routineProgress.first?.routine.id {
-                presentedSheet = .routineSession(routineID)
-            } else {
-                presentedSheet = .routineBuilder
-            }
-        case "openShopping", "neededItems":
-            presentedSheet = .shoppingList
-        case "quickAddShopping":
-            presentedSheet = .shoppingQuickAdd
-        case "openPlanner", "planToday", "reviewSchedule", "createScheduledBlock":
-            navigationPath.append(.planner)
-        case "openHealth", "logMeal", "logSleep", "healthHistory":
-            presentedSheet = .health
-        case "logHit", "activeSession", "history":
-            presentedSheet = .vices
-        case "debrief":
-            presentedSheet = .debriefs
-        case "startPractice", "currentPiece", "addPracticeNote", "regimen":
-            presentedSheet = .musicPractice
-        case "openFitness", "logWorkout", "recentWorkouts", "workoutDays":
-            presentedSheet = .fitness
-        case "openPeopleMemory", "addPerson", "studyNow", "reviewDue":
-            presentedSheet = .peopleMemory
-        case "addExpense", "budget", "subscriptions":
-            presentedSheet = .finance
-        default:
-            switch definition.mainDestination {
-            case .openTasks:
-                navigationPath.append(.tasks)
-            case .openPlanner:
+
+            switch action.id {
+            case "addTask":
+                presentedSheet = .inboxReview
+            case "today":
                 navigationPath.append(.planner)
-            case .openProjects:
+            case "capture":
+                presentCaptureOverlay()
+            case "overdue":
+                navigationPath.append(.tasks)
+            case "openProjects", "pinnedProjects", "projectFocus", "projectInbox":
                 navigationPath.append(.projects)
-            case .newPromise:
+            case "newPromise":
                 presentedSheet = .promiseForm
-            case .newRoutine:
+            case "checkInDue":
+                if let promise = viewModel.duePromises.first {
+                    presentedSheet = .promiseCheckIn(promise)
+                } else {
+                    presentedSheet = .promiseForm
+                }
+            case "activePromises":
+                presentedSheet = .promiseForm
+            case "newRoutine":
                 presentedSheet = .routineBuilder
-            case .openShopping:
+            case "todayRoutines":
+                if let routineID = viewModel.routineProgress.first?.routine.id {
+                    presentedSheet = .routineSession(routineID)
+                } else {
+                    presentedSheet = .routineBuilder
+                }
+            case "currentStep":
+                if let routineID = viewModel.routineProgress.first?.routine.id {
+                    presentedSheet = .routineSession(routineID)
+                } else {
+                    presentedSheet = .routineBuilder
+                }
+            case "openShopping", "neededItems":
                 presentedSheet = .shoppingList
-            case .openHealth:
+            case "quickAddShopping":
+                presentedSheet = .shoppingQuickAdd
+            case "openPlanner", "planToday", "reviewSchedule", "createScheduledBlock":
+                navigationPath.append(.planner)
+            case "openHealth", "logMeal", "logSleep", "healthHistory":
                 presentedSheet = .health
-            case .openMusicPractice:
-                presentedSheet = .musicPractice
-            case .openFitness:
-                presentedSheet = .fitness
-            case .openPeopleMemory:
-                presentedSheet = .peopleMemory
-            case .openVices:
+            case "activeSession", "history":
                 presentedSheet = .vices
-            case .openFinance:
+            case "debrief":
+                presentedSheet = .debriefs
+            case "startPractice", "currentPiece", "addPracticeNote", "regimen":
+                presentedSheet = .musicPractice
+            case "openFitness", "logWorkout", "recentWorkouts", "workoutDays":
+                presentedSheet = .fitness
+            case "openPeopleMemory", "addPerson", "studyNow", "reviewDue":
+                presentedSheet = .peopleMemory
+            case "addExpense", "budget", "subscriptions":
                 presentedSheet = .finance
             default:
-                break
+                switch definition.mainDestination {
+                case .openTasks:
+                    navigationPath.append(.tasks)
+                case .openPlanner:
+                    navigationPath.append(.planner)
+                case .openProjects:
+                    navigationPath.append(.projects)
+                case .newPromise:
+                    presentedSheet = .promiseForm
+                case .newRoutine:
+                    presentedSheet = .routineBuilder
+                case .openShopping:
+                    presentedSheet = .shoppingList
+                case .openHealth:
+                    presentedSheet = .health
+                case .openMusicPractice:
+                    presentedSheet = .musicPractice
+                case .openFitness:
+                    presentedSheet = .fitness
+                case .openPeopleMemory:
+                    presentedSheet = .peopleMemory
+                case .openVices:
+                    presentedSheet = .vices
+                case .openFinance:
+                    presentedSheet = .finance
+                default:
+                    break
+                }
             }
         }
     }
 
-    @ViewBuilder
-    private func widgetQuickActionEditor(for widget: HomeWidgetInstance) -> some View {
-        if let definition = widgetDefinition(for: widget) {
-            Form {
-                Section("Quick Buttons") {
-                    Text("Choose up to 2 buttons.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    let selectedIDs = Set(resolvedQuickActionIDs(for: widget))
-                    ForEach(definition.availableQuickActions) { action in
-                        Toggle(
-                            action.title,
-                            isOn: Binding(
-                                get: { selectedIDs.contains(action.id) },
-                                set: { isOn in
-                                    updateQuickActionSelection(action.id, isOn: isOn, widgetID: widget.id)
-                                }
-                            )
-                        )
-                        .disabled(selectedIDs.count >= 2 && selectedIDs.contains(action.id) == false)
-                    }
-                }
-            }
-            .navigationTitle("Edit Widget")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        editingWidget = nil
-                    }
-                }
-            }
-        } else {
-            ContentUnavailableView("No Quick Actions", systemImage: "slider.horizontal.3")
-                .navigationTitle("Edit Widget")
+    private func performQuickActionCommand(_ command: HomeWidgetQuickActionCommand) {
+        switch command {
+        case .repeatMostRecentViceLog:
+            showHomeActionFeedback(viewModel.repeatMostRecentViceLog())
         }
     }
 
-    private func updateQuickActionSelection(_ actionID: String, isOn: Bool, widgetID: UUID) {
+    private func updateQuickActionSelection(_ selectedIDs: [String], widgetID: UUID) {
         guard let widget = homeViewModel.widgets.first(where: { $0.id == widgetID }) else {
             return
         }
 
         var updated = widget
-        updated.configuration.selectedQuickActionIDs = resolvedQuickActionIDs(for: widget)
-        if isOn {
-            guard updated.configuration.selectedQuickActionIDs.count < 2 else {
-                return
-            }
-            updated.configuration.selectedQuickActionIDs.append(actionID)
-        } else {
-            updated.configuration.selectedQuickActionIDs.removeAll { $0 == actionID }
-        }
-        updated.configuration.normalizeQuickActions()
+        updated.configuration.selectedQuickActionIDs = HomeWidgetQuickActionResolver.normalizedQuickActionIDs(selectedIDs)
         homeViewModel.updateWidgetConfiguration(updated)
         editingWidget = updated
     }
@@ -905,8 +887,8 @@ struct HomeView: View {
             perform: { action, widget in
                 performWidgetAction(action, for: widget)
             },
-            performQuickAction: { actionID, widget in
-                performQuickAction(actionID, for: widget)
+            performQuickAction: { action, widget in
+                performQuickAction(action, for: widget)
             },
             openProject: { projectID in
                 navigationPath.append(.project(projectID))
@@ -1002,15 +984,59 @@ struct HomeView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("What needs to stay present?")
+    private var welcomeBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(viewModel.welcomeMessage)
                 .font(.title2.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
 
             Text(Date().formatted(date: .complete, time: .omitted))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        }
+    }
+
+    @ViewBuilder
+    private var homeActionFeedbackOverlay: some View {
+        if let feedback = homeActionFeedback {
+            HomeActionFeedbackBanner(feedback: feedback)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func showHomeActionFeedback(_ feedback: HomeActionFeedback) {
+        withAnimation(.easeOut(duration: 0.18)) {
+            homeActionFeedback = feedback
+        }
+
+        homeActionFeedbackDismissTask?.cancel()
+        homeActionFeedbackDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard Task.isCancelled == false else {
+                return
+            }
+
+            withAnimation(.easeOut(duration: 0.18)) {
+                homeActionFeedback = nil
+            }
+            homeActionFeedbackDismissTask = nil
+        }
+    }
+
+    private func cancelHomeActionFeedback() {
+        homeActionFeedbackDismissTask?.cancel()
+        homeActionFeedbackDismissTask = nil
+        homeActionFeedback = nil
     }
 
     private var captureOverlay: some View {
@@ -1035,6 +1061,54 @@ struct HomeView: View {
         }
     }
 
+}
+
+private struct HomeActionFeedbackBanner: View {
+    let feedback: HomeActionFeedback
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: iconName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tintColor)
+
+            Text(feedback.message)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background {
+            Capsule(style: .continuous)
+                .fill(Color(.systemBackground).opacity(0.96))
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .strokeBorder(tintColor.opacity(0.22), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.14), radius: 14, y: 6)
+    }
+
+    private var iconName: String {
+        switch feedback.kind {
+        case .success:
+            return "checkmark.circle.fill"
+        case .warning:
+            return "info.circle.fill"
+        }
+    }
+
+    private var tintColor: Color {
+        switch feedback.kind {
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        }
+    }
 }
 
 private struct HomeWidgetDropDelegate: DropDelegate {
@@ -1225,70 +1299,6 @@ private struct HomeCustomizationView: View {
         case .planned:
             return "Planned"
         }
-    }
-}
-
-private struct ShoppingQuickAddSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel: ShoppingListViewModel
-    @State private var title = ""
-
-    let onSave: () -> Void
-
-    init(
-        shoppingRepository: any ShoppingRepository,
-        onSave: @escaping () -> Void
-    ) {
-        self.onSave = onSave
-        _viewModel = StateObject(
-            wrappedValue: ShoppingListViewModel(shoppingRepository: shoppingRepository)
-        )
-    }
-
-    var body: some View {
-        Form {
-            Section("Item") {
-                TextField("Add item", text: $title)
-                    .submitLabel(.done)
-                    .onSubmit(save)
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
-        }
-        .navigationTitle("Add Shopping Item")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Add") {
-                    save()
-                }
-                .disabled(ShoppingItem.cleanedTitle(from: title) == nil)
-            }
-        }
-    }
-
-    private func save() {
-        guard ShoppingItem.cleanedTitle(from: title) != nil else {
-            return
-        }
-
-        viewModel.quickAdd(title: title)
-        guard viewModel.errorMessage == nil else {
-            return
-        }
-
-        onSave()
     }
 }
 
@@ -1518,961 +1528,6 @@ struct PromiseStatView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-private struct PromiseFormView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var title = ""
-    @State private var notes = ""
-    @State private var startAt = Date()
-    @State private var checkInAt = Date().addingTimeInterval(60 * 60)
-    @State private var whyItMatters = ""
-    @State private var expectedFriction = ""
-
-    let onSave: (Promise) -> Void
-
-    var body: some View {
-        Form {
-            Section("Promise") {
-                TextField("Title", text: $title)
-                TextField("Why it matters", text: $whyItMatters, axis: .vertical)
-                TextField("Expected friction or excuse", text: $expectedFriction, axis: .vertical)
-                TextField("Notes", text: $notes, axis: .vertical)
-            }
-
-            Section("Timing") {
-                DatePicker("Starts", selection: $startAt)
-                DatePicker("Check In", selection: $checkInAt)
-            }
-        }
-        .navigationTitle("New Promise")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    onSave(
-                        Promise(
-                            title: title,
-                            notes: notes,
-                            startAt: startAt,
-                            checkInAt: checkInAt,
-                            whyItMatters: whyItMatters,
-                            expectedFriction: expectedFriction
-                        )
-                    )
-                }
-                .disabled(Promise.cleanedTitle(from: title) == nil)
-            }
-        }
-    }
-}
-
-private struct PromiseCheckInView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let promise: Promise
-    let onResolve: (PromiseOutcome, String?) -> Void
-    let onReset: (String, Date) -> Void
-
-    @State private var reflection = ""
-    @State private var resetTitle = ""
-    @State private var resetCheckInAt = Date().addingTimeInterval(60 * 60)
-
-    var body: some View {
-        Form {
-            Section("Promise") {
-                Text(promise.title)
-                if let whyItMatters = promise.whyItMatters {
-                    Text(whyItMatters)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Check In") {
-                TextField("What happened?", text: $reflection, axis: .vertical)
-                Button {
-                    onResolve(.kept, reflection)
-                } label: {
-                    Label("Kept", systemImage: "checkmark.circle.fill")
-                }
-                Button {
-                    onResolve(.missed, reflection)
-                } label: {
-                    Label("Missed", systemImage: "exclamationmark.circle.fill")
-                }
-            }
-
-            Section("Reset") {
-                TextField("Reset promise", text: $resetTitle)
-                DatePicker("Check In", selection: $resetCheckInAt)
-                Button {
-                    onReset(resetTitle, resetCheckInAt)
-                } label: {
-                    Label("Create Reset Promise", systemImage: "arrow.clockwise")
-                }
-                .disabled(Promise.cleanedTitle(from: resetTitle) == nil)
-            }
-        }
-        .navigationTitle("Check In")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Done") {
-                    dismiss()
-                }
-            }
-        }
-        .onAppear {
-            resetTitle = promise.title
-        }
-    }
-}
-
-private struct RoutineBuilderView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var name = ""
-    @State private var notes = ""
-    @State private var itemText = ""
-    @State private var selectedWeekdays: Set<RoutineWeekday> = []
-
-    let routineToEdit: Routine? = nil
-    let onSave: (Routine) -> Void
-
-    var body: some View {
-        Form {
-            Section("Routine") {
-                TextField("Name", text: $name)
-                TextField("Notes", text: $notes, axis: .vertical)
-            }
-
-            Section("Days") {
-                Toggle("Daily", isOn: dailyBinding)
-                if selectedWeekdays.isEmpty == false {
-                    ForEach(RoutineWeekday.allCases, id: \.self) { weekday in
-                        Toggle(weekday.shortName, isOn: weekdayBinding(for: weekday))
-                    }
-                }
-            }
-
-            Section("Items") {
-                TextEditor(text: $itemText)
-                    .frame(minHeight: 120)
-                Text("One item per line")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle(routineToEdit == nil ? "New Routine" : "Edit Routine")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    guard let routine = Routine(
-                        newName: name,
-                        itemTitles: itemText.components(separatedBy: .newlines),
-                        activeWeekdays: Array(selectedWeekdays)
-                    ) else {
-                        return
-                    }
-
-                    var routineWithNotes = routine
-                    routineWithNotes.notes = MyTask.cleanedOptionalText(from: notes)
-                    onSave(routineWithNotes)
-                }
-                .disabled(Routine.cleanedName(from: name) == nil || cleanedItemTitles.isEmpty)
-            }
-        }
-        .onAppear {
-            guard let routineToEdit else {
-                return
-            }
-
-            name = routineToEdit.name
-            notes = routineToEdit.notes ?? ""
-            itemText = routineToEdit.orderedItems.map(\.title).joined(separator: "\n")
-            selectedWeekdays = Set(routineToEdit.activeWeekdays)
-        }
-    }
-
-    private var cleanedItemTitles: [String] {
-        itemText.components(separatedBy: .newlines).compactMap(RoutineItem.cleanedTitle)
-    }
-
-    private var dailyBinding: Binding<Bool> {
-        Binding(
-            get: { selectedWeekdays.isEmpty },
-            set: { isDaily in
-                selectedWeekdays = isDaily ? [] : Set(RoutineWeekday.allCases)
-            }
-        )
-    }
-
-    private func weekdayBinding(for weekday: RoutineWeekday) -> Binding<Bool> {
-        Binding(
-            get: { selectedWeekdays.contains(weekday) },
-            set: { isSelected in
-                if isSelected {
-                    selectedWeekdays.insert(weekday)
-                } else {
-                    selectedWeekdays.remove(weekday)
-                }
-            }
-        )
-    }
-}
-
-private struct RoutineSessionView: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject var viewModel: HomeExecutionViewModel
-    @State private var currentIndex = 0
-    @State private var presentedLinkSheet: RoutineStepLinkSheet?
-    @State private var pendingLinkStepID: UUID?
-    @State private var isShowingLinkPicker = false
-
-    let registry: HomeWidgetRegistry
-    let taskRepository: any TaskRepository
-    let projectRepository: any ProjectRepository
-    let captureRepository: any CaptureRepository
-    let projectItemRepository: any ProjectItemRepository
-    let scheduledBlockRepository: any ScheduledBlockRepository
-    let settingsRepository: any SettingsRepository
-    let calendarPermissionProvider: any CalendarPermissionProviding
-    let calendarListingService: any CalendarListing
-    let calendarReader: any CalendarReading
-    let calendarWriter: any CalendarWriting
-    let calendarReconciler: any CalendarReconciling
-    let calendarChangeObserver: any CalendarChangeObserving
-    let promiseRepository: any PromiseRepository
-    let shoppingRepository: any ShoppingRepository
-    let healthRepository: any HealthRepository
-    let musicPracticeRepository: any MusicPracticeRepository
-    let fitnessRepository: any FitnessRepository
-    let peopleMemoryRepository: any PeopleMemoryRepository
-    let viceRepository: any ViceRepository
-    let calendarBlockFocusRepository: any CalendarBlockFocusRepository
-    let debriefRepository: any DebriefRepository
-    let financeRepository: any FinanceRepository
-    let routineID: UUID
-
-    var body: some View {
-        routineSessionContent
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") {
-                    dismiss()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var routineSessionContent: some View {
-        if let progress = viewModel.progress(for: routineID) {
-            activeRoutineView(for: progress)
-        } else {
-            unavailableRoutineView
-        }
-    }
-
-    private func activeRoutineView(for progress: HomeRoutineProgress) -> some View {
-        let steps = progress.routine.orderedItems
-        let isFinished = steps.isEmpty || currentIndex >= steps.count
-
-        return GeometryReader { geometry in
-            VStack(alignment: .leading, spacing: 24) {
-                routineHeader(progress: progress, steps: steps, isFinished: isFinished)
-                Spacer(minLength: 0)
-                activeRoutineStateView(progress: progress, steps: steps, isFinished: isFinished)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                Spacer(minLength: 0)
-                if steps.isEmpty == false {
-                    routineActionBar(
-                        progress: progress,
-                        steps: steps,
-                        height: max(180, geometry.size.height * 0.3)
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .padding()
-        .navigationTitle("Routine")
-        .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(
-            "Add Routine Link",
-            isPresented: $isShowingLinkPicker,
-            titleVisibility: .visible
-        ) {
-            if moduleLinkDescriptors.isEmpty {
-                Button("No Available Module Links") {}
-                    .disabled(true)
-            } else {
-                ForEach(moduleLinkDescriptors, id: \.kind) { descriptor in
-                    Button(descriptor.displayName) {
-                        addModuleLink(descriptor: descriptor)
-                    }
-                }
-            }
-        }
-        .sheet(item: $presentedLinkSheet) { sheet in
-            NavigationStack {
-                presentedLinkSheetContent(for: sheet)
-            }
-        }
-        .onAppear {
-            alignCurrentIndex(with: progress)
-        }
-        .onChange(of: progress.completionLog) { _, _ in
-            alignCurrentIndex(with: progress)
-        }
-    }
-
-    private func routineHeader(
-        progress: HomeRoutineProgress,
-        steps: [RoutineItem],
-        isFinished: Bool
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(progress.routine.name)
-                .font(.title3.weight(.semibold))
-
-            Text(progressText(totalCount: steps.count, isFinished: isFinished))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            ProgressView(
-                value: Double(progress.completedCount + progress.skippedCount),
-                total: Double(max(progress.totalCount, 1))
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func activeRoutineStateView(
-        progress: HomeRoutineProgress,
-        steps: [RoutineItem],
-        isFinished: Bool
-    ) -> some View {
-        if isFinished {
-            completedRoutineView(progress: progress)
-        } else if steps.indices.contains(currentIndex) {
-            let item = steps[currentIndex]
-            let state = progress.completionLog?.state(for: item.id) ?? .untouched
-            currentRoutineStepView(
-                progress: progress,
-                item: item,
-                state: state
-            )
-        }
-    }
-
-    private func completedRoutineView(progress: HomeRoutineProgress) -> some View {
-        VStack(alignment: .center, spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.green)
-
-            Text("Routine Complete")
-                .font(.title2.weight(.semibold))
-
-            Text("Completed \(progress.completedCount) · Skipped \(progress.skippedCount)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func currentRoutineStepView(
-        progress: HomeRoutineProgress,
-        item: RoutineItem,
-        state: RoutineStepCompletionState
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(item.title)
-                    .font(.title2.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if state != .untouched {
-                    Text(stateLabel(for: state))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(state == .completed ? Color.green : Color.orange)
-                }
-            }
-            .padding(18)
-            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-            routineStepLinksSection(progress: progress, item: item)
-        }
-    }
-
-    private var unavailableRoutineView: some View {
-        ContentUnavailableView(
-            "Routine Not Available",
-            systemImage: "exclamationmark.triangle",
-            description: Text("This routine is no longer active today.")
-        )
-        .navigationTitle("Routine")
-    }
-
-    private func presentedLinkSheetContent(for sheet: RoutineStepLinkSheet) -> AnyView {
-        switch sheet {
-        case .promiseCheckIn(let promise):
-            return AnyView(PromiseCheckInView(
-                promise: promise,
-                onResolve: { outcome, reflection in
-                    viewModel.resolvePromise(
-                        withID: promise.id,
-                        outcome: outcome,
-                        reflection: reflection
-                    )
-                    presentedLinkSheet = nil
-                },
-                onReset: { title, checkInAt in
-                    viewModel.makeResetPromise(
-                        from: promise,
-                        title: title,
-                        checkInAt: checkInAt
-                    )
-                    presentedLinkSheet = nil
-                }
-            ))
-        case .promiseForm:
-            return AnyView(PromiseFormView { promise in
-                viewModel.savePromise(promise)
-                presentedLinkSheet = nil
-            })
-        case .routineBuilder:
-            return AnyView(RoutineBuilderView { routine in
-                viewModel.saveRoutine(routine)
-                presentedLinkSheet = nil
-            })
-        case .tasks:
-            return AnyView(TaskListView(
-                taskRepository: taskRepository,
-                projectRepository: projectRepository,
-                scheduledBlockRepository: scheduledBlockRepository,
-                calendarWriter: calendarWriter,
-                promiseRepository: promiseRepository
-            ))
-        case .planner:
-            return AnyView(PlannerView(
-                taskRepository: taskRepository,
-                scheduledBlockRepository: scheduledBlockRepository,
-                settingsRepository: settingsRepository,
-                calendarPermissionProvider: calendarPermissionProvider,
-                calendarListingService: calendarListingService,
-                calendarReader: calendarReader,
-                calendarWriter: calendarWriter,
-                calendarReconciler: calendarReconciler,
-                calendarChangeObserver: calendarChangeObserver,
-                promiseRepository: promiseRepository,
-                navigationTitle: "Plan the Day"
-            ))
-        case .projects:
-            return AnyView(ProjectsView(
-                taskRepository: taskRepository,
-                projectRepository: projectRepository,
-                captureRepository: captureRepository,
-                projectItemRepository: projectItemRepository,
-                calendarPermissionProvider: calendarPermissionProvider,
-                calendarReader: calendarReader,
-                calendarBlockFocusRepository: calendarBlockFocusRepository,
-                debriefRepository: debriefRepository
-            ))
-        case .shoppingList:
-            return AnyView(ShoppingListView(shoppingRepository: shoppingRepository) {
-                viewModel.load()
-            })
-        case .health:
-            return AnyView(HealthView(
-                healthRepository: healthRepository,
-                fitnessRepository: fitnessRepository
-            ) {
-                viewModel.load()
-            })
-        case .musicPractice:
-            return AnyView(MusicPracticeView(musicPracticeRepository: musicPracticeRepository) {
-                viewModel.load()
-            })
-        case .fitness:
-            return AnyView(FitnessView(fitnessRepository: fitnessRepository) {
-                viewModel.load()
-            })
-        case .peopleMemory:
-            return AnyView(PeopleMemoryView(peopleMemoryRepository: peopleMemoryRepository) {
-                viewModel.load()
-            })
-        case .vices:
-            return AnyView(VicesView(
-                viceRepository: viceRepository,
-                debriefRepository: debriefRepository
-            ) {
-                viewModel.load()
-            })
-        case .finance:
-            return AnyView(FinanceDashboardView(financeRepository: financeRepository) {
-                viewModel.load()
-            })
-        case .pvtTest:
-            return AnyView(PVTTestView { session in
-                do {
-                    try healthRepository.savePVTSession(session)
-                    viewModel.load()
-                    presentedLinkSheet = nil
-                } catch {
-                    viewModel.reportError("Unable to save PVT session: \(error.localizedDescription)")
-                }
-            })
-        case .unavailable(let title, let message):
-            return AnyView(RoutineLinkUnavailableView(title: title, message: message))
-        }
-    }
-
-    @ViewBuilder
-    private func routineStepLinksSection(
-        progress: HomeRoutineProgress,
-        item: RoutineItem
-    ) -> some View {
-        let links = progress.routine.orderedStepLinks(for: item.id)
-
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Routine Links")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            if links.isEmpty {
-                HStack {
-                    Spacer()
-                    Button {
-                        pendingLinkStepID = item.id
-                        isShowingLinkPicker = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.caption.weight(.bold))
-                            .padding(10)
-                            .background(.quaternary.opacity(0.4), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                }
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 10)], spacing: 10) {
-                    ForEach(links) { link in
-                        RoutineStepLinkCard(
-                            link: link,
-                            iconSystemName: descriptor(for: link)?.iconSystemName,
-                            onOpen: { open(link: link) },
-                            onRemove: { remove(linkID: link.id, from: progress.routine) }
-                        )
-                    }
-
-                    Button {
-                        pendingLinkStepID = item.id
-                        isShowingLinkPicker = true
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                            .font(.subheadline.weight(.medium))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        }
-    }
-
-    private var moduleLinkDescriptors: [HomeWidgetDescriptor] {
-        registry.availableRoutineModuleLinkDescriptors
-    }
-
-    private func progressText(totalCount: Int, isFinished: Bool) -> String {
-        guard totalCount > 0 else {
-            return "0 / 0"
-        }
-
-        let position = isFinished ? totalCount : min(currentIndex + 1, totalCount)
-        return "\(position) / \(totalCount)"
-    }
-
-    private func stateLabel(for state: RoutineStepCompletionState) -> String {
-        switch state {
-        case .untouched:
-            return ""
-        case .completed:
-            return "Completed"
-        case .skipped:
-            return "Skipped"
-        }
-    }
-
-    private func isLastStep(totalCount: Int) -> Bool {
-        currentIndex == totalCount - 1
-    }
-
-    private func routineActionBar(
-        progress: HomeRoutineProgress,
-        steps: [RoutineItem],
-        height: CGFloat
-    ) -> some View {
-        let currentItem = steps.indices.contains(currentIndex) ? steps[currentIndex] : nil
-
-        return VStack {
-            Spacer(minLength: 0)
-            HStack(spacing: 18) {
-                Button {
-                    viewModel.undoLastRoutineAction(routineID: routineID)
-                } label: {
-                    VStack(spacing: 8) {
-                        Image(systemName: "arrow.uturn.backward.circle.fill")
-                            .font(.system(size: 28, weight: .semibold))
-                        Text("Undo")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 84)
-                    .foregroundStyle(progress.lastTouchedItem == nil ? Color.secondary : Color.primary)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color(.secondarySystemBackground))
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(progress.lastTouchedItem == nil)
-
-                Button {
-                    guard let currentItem else {
-                        return
-                    }
-                    advance(stepID: currentItem.id, state: .skipped, totalCount: steps.count)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 28, weight: .bold))
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 84)
-                        .foregroundStyle(.white)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(Color.red)
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(currentItem == nil)
-
-                Button {
-                    guard let currentItem else {
-                        return
-                    }
-                    advance(stepID: currentItem.id, state: .completed, totalCount: steps.count)
-                } label: {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 28, weight: .bold))
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 84)
-                        .foregroundStyle(.white)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(Color.green)
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(currentItem == nil)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: height, alignment: .bottom)
-    }
-
-    private func advance(stepID: UUID, state: RoutineStepCompletionState, totalCount: Int) {
-        let shouldDismiss = isLastStep(totalCount: totalCount)
-        viewModel.setRoutineItem(routineID: routineID, itemID: stepID, state: state)
-        if shouldDismiss {
-            dismiss()
-        } else {
-            currentIndex = min(currentIndex + 1, totalCount)
-        }
-    }
-
-    private func alignCurrentIndex(with progress: HomeRoutineProgress) {
-        let steps = progress.routine.orderedItems
-        guard steps.isEmpty == false else {
-            currentIndex = 0
-            return
-        }
-
-        if let firstUntouchedIndex = steps.firstIndex(where: {
-            (progress.completionLog?.state(for: $0.id) ?? .untouched) == .untouched
-        }) {
-            currentIndex = firstUntouchedIndex
-        } else {
-            currentIndex = steps.count
-        }
-    }
-
-    private func addModuleLink(descriptor: HomeWidgetDescriptor) {
-        guard let progress = viewModel.progress(for: routineID),
-              let stepID = pendingLinkStepID else {
-            return
-        }
-
-        let nextOrder = progress.routine.orderedStepLinks(for: stepID).count
-        var updatedRoutine = progress.routine
-        updatedRoutine.stepLinks.append(
-            RoutineStepLink(
-                routineStepID: stepID,
-                kind: .moduleWidget,
-                moduleWidgetKind: descriptor.kind,
-                displayTitle: descriptor.displayName,
-                displayOrder: nextOrder
-            )
-        )
-        viewModel.saveRoutine(updatedRoutine, replacingRoutineWithID: updatedRoutine.id)
-    }
-
-    private func remove(linkID: UUID, from routine: Routine) {
-        var updatedRoutine = routine
-        updatedRoutine.stepLinks.removeAll { $0.id == linkID }
-        updatedRoutine.stepLinks = reindexedLinks(updatedRoutine.stepLinks)
-        viewModel.saveRoutine(updatedRoutine, replacingRoutineWithID: updatedRoutine.id)
-    }
-
-    private func reindexedLinks(_ links: [RoutineStepLink]) -> [RoutineStepLink] {
-        let grouped = Dictionary(grouping: links, by: \.routineStepID)
-        return grouped.values.flatMap { group in
-            group
-                .sorted {
-                    if $0.displayOrder != $1.displayOrder {
-                        return $0.displayOrder < $1.displayOrder
-                    }
-
-                    return $0.id.uuidString < $1.id.uuidString
-                }
-                .enumerated()
-                .map { index, link in
-                    RoutineStepLink(
-                        id: link.id,
-                        routineStepID: link.routineStepID,
-                        kind: link.kind,
-                        moduleWidgetKind: link.moduleWidgetKind,
-                        displayTitle: link.displayTitle,
-                        displayOrder: index
-                    )
-                }
-        }
-    }
-
-    private func open(link: RoutineStepLink) {
-        switch link.kind {
-        case .pvtTest:
-            presentedLinkSheet = .pvtTest
-        case .promiseCheckIn:
-            if let promise = viewModel.duePromises.first ?? viewModel.activePromises.first {
-                presentedLinkSheet = .promiseCheckIn(promise)
-            } else {
-                presentedLinkSheet = .unavailable(
-                    title: "No Active Promises",
-                    message: "Create or start a promise first, then reopen this link from the routine step."
-                )
-            }
-        case .moduleWidget:
-            guard let descriptor = descriptor(for: link),
-                  descriptor.isAvailable,
-                  descriptor.isModuleWidget,
-                  let action = descriptor.defaultAction else {
-                presentedLinkSheet = .unavailable(
-                    title: "Module Link Unavailable",
-                    message: "This module link is no longer available in this version of the app."
-                )
-                return
-            }
-
-            openModuleAction(action)
-        }
-    }
-
-    private func descriptor(for link: RoutineStepLink) -> HomeWidgetDescriptor? {
-        guard link.kind == .moduleWidget,
-              let widgetKind = link.moduleWidgetKind else {
-            return nil
-        }
-
-        return registry.descriptor(for: widgetKind)
-    }
-
-    private func openModuleAction(_ action: HomeWidgetDefaultAction) {
-        switch action {
-        case .openTasks:
-            presentedLinkSheet = .tasks
-        case .openPlanner:
-            presentedLinkSheet = .planner
-        case .openProjects:
-            presentedLinkSheet = .projects
-        case .newPromise:
-            presentedLinkSheet = .promiseForm
-        case .newRoutine:
-            presentedLinkSheet = .routineBuilder
-        case .openShopping:
-            presentedLinkSheet = .shoppingList
-        case .openHealth:
-            presentedLinkSheet = .health
-        case .openMusicPractice:
-            presentedLinkSheet = .musicPractice
-        case .openFitness:
-            presentedLinkSheet = .fitness
-        case .openPeopleMemory:
-            presentedLinkSheet = .peopleMemory
-        case .openVices:
-            presentedLinkSheet = .vices
-        case .openFinance:
-            presentedLinkSheet = .finance
-        case .openDebriefs:
-            presentedLinkSheet = .unavailable(
-                title: "Module Link Not Supported",
-                message: "Debrief links are not available from routine steps yet."
-            )
-        case .openCapture,
-             .reviewInbox,
-             .openConfiguredProject,
-             .checkInDuePromise,
-             .openConfiguredRoutine,
-             .quickAddShopping:
-            presentedLinkSheet = .unavailable(
-                title: "Module Link Not Supported",
-                message: "This widget action cannot be opened from a routine link."
-            )
-        }
-    }
-}
-
-private enum RoutineStepLinkSheet: Identifiable {
-    case promiseCheckIn(Promise)
-    case pvtTest
-    case promiseForm
-    case routineBuilder
-    case tasks
-    case planner
-    case projects
-    case shoppingList
-    case health
-    case musicPractice
-    case fitness
-    case peopleMemory
-    case vices
-    case finance
-    case unavailable(title: String, message: String)
-
-    var id: String {
-        switch self {
-        case .promiseCheckIn(let promise):
-            return "promise-\(promise.id.uuidString)"
-        case .pvtTest:
-            return "pvt-test"
-        case .promiseForm:
-            return "promise-form"
-        case .routineBuilder:
-            return "routine-builder"
-        case .tasks:
-            return "tasks"
-        case .planner:
-            return "planner"
-        case .projects:
-            return "projects"
-        case .shoppingList:
-            return "shopping-list"
-        case .health:
-            return "health"
-        case .musicPractice:
-            return "music-practice"
-        case .fitness:
-            return "fitness"
-        case .peopleMemory:
-            return "people-memory"
-        case .vices:
-            return "vices"
-        case .finance:
-            return "finance"
-        case .unavailable(let title, _):
-            return "unavailable-\(title)"
-        }
-    }
-}
-
-private struct RoutineStepLinkCard: View {
-    let link: RoutineStepLink
-    let iconSystemName: String?
-    let onOpen: () -> Void
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                onOpen()
-            } label: {
-                HStack(spacing: 8) {
-                    if let iconSystemName {
-                        Image(systemName: iconSystemName)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Text(link.displayTitle)
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-            }
-            .buttonStyle(.plain)
-
-            Button(role: .destructive) {
-                onRemove()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.bold))
-                    .padding(8)
-            }
-            .buttonStyle(.plain)
-        }
-        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.accentColor.opacity(0.12), lineWidth: 1)
-        )
-    }
-}
-
-private struct RoutineLinkUnavailableView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let title: String
-    let message: String
-
-    var body: some View {
-        ContentUnavailableView(
-            title,
-            systemImage: "rectangle.on.rectangle.slash",
-            description: Text(message)
-        )
-        .navigationTitle("Routine Link")
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") {
-                    dismiss()
-                }
-            }
-        }
     }
 }
 

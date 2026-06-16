@@ -70,6 +70,7 @@ nonisolated struct RoutineStepLink: Identifiable, Equatable, Codable, Sendable {
     var moduleWidgetKindRawValue: String?
     var displayTitle: String
     var displayOrder: Int
+    var selectedQuickActionIDs: [String]
 
     init(
         id: UUID = UUID(),
@@ -77,7 +78,8 @@ nonisolated struct RoutineStepLink: Identifiable, Equatable, Codable, Sendable {
         kind: RoutineStepLinkKind,
         moduleWidgetKind: HomeWidgetKind? = nil,
         displayTitle: String? = nil,
-        displayOrder: Int
+        displayOrder: Int,
+        selectedQuickActionIDs: [String] = []
     ) {
         self.id = id
         self.routineStepID = routineStepID
@@ -85,6 +87,7 @@ nonisolated struct RoutineStepLink: Identifiable, Equatable, Codable, Sendable {
         self.moduleWidgetKindRawValue = moduleWidgetKind?.rawValue
         self.displayTitle = Routine.cleanedName(from: displayTitle ?? kind.displayTitle) ?? kind.displayTitle
         self.displayOrder = max(0, displayOrder)
+        self.selectedQuickActionIDs = HomeWidgetQuickActionResolver.normalizedQuickActionIDs(selectedQuickActionIDs)
     }
 
     var moduleWidgetKind: HomeWidgetKind? {
@@ -94,6 +97,48 @@ nonisolated struct RoutineStepLink: Identifiable, Equatable, Codable, Sendable {
         set {
             moduleWidgetKindRawValue = newValue?.rawValue
         }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case routineStepID
+        case kind
+        case moduleWidgetKindRawValue
+        case displayTitle
+        case displayOrder
+        case selectedQuickActionIDs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(UUID.self, forKey: .id)
+        let routineStepID = try container.decode(UUID.self, forKey: .routineStepID)
+        let kind = try container.decode(RoutineStepLinkKind.self, forKey: .kind)
+        let moduleWidgetKindRawValue = try container.decodeIfPresent(String.self, forKey: .moduleWidgetKindRawValue)
+        let displayTitle = try container.decode(String.self, forKey: .displayTitle)
+        let displayOrder = try container.decode(Int.self, forKey: .displayOrder)
+        let selectedQuickActionIDs = try container.decodeIfPresent([String].self, forKey: .selectedQuickActionIDs) ?? []
+
+        self.init(
+            id: id,
+            routineStepID: routineStepID,
+            kind: kind,
+            moduleWidgetKind: moduleWidgetKindRawValue.map(HomeWidgetKind.init(rawValue:)),
+            displayTitle: displayTitle,
+            displayOrder: displayOrder,
+            selectedQuickActionIDs: selectedQuickActionIDs
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(routineStepID, forKey: .routineStepID)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(moduleWidgetKindRawValue, forKey: .moduleWidgetKindRawValue)
+        try container.encode(displayTitle, forKey: .displayTitle)
+        try container.encode(displayOrder, forKey: .displayOrder)
+        try container.encode(selectedQuickActionIDs, forKey: .selectedQuickActionIDs)
     }
 }
 
@@ -227,7 +272,8 @@ nonisolated struct Routine: Identifiable, Equatable, Sendable {
                     kind: link.kind,
                     moduleWidgetKind: link.moduleWidgetKind,
                     displayTitle: link.displayTitle,
-                    displayOrder: link.displayOrder
+                    displayOrder: link.displayOrder,
+                    selectedQuickActionIDs: link.selectedQuickActionIDs
                 )
             }
             .sorted { leftLink, rightLink in

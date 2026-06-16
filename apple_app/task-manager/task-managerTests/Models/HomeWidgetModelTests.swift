@@ -208,6 +208,15 @@ struct HomeWidgetModelTests {
         #expect(registry.moduleWidget(for: .vices)?.kind == .vicesModule)
     }
 
+    @Test func vicesModuleRepeatLastQuickActionUsesCommandBehavior() throws {
+        let registry = HomeWidgetRegistry.standard
+        let definition = try #require(registry.definition(for: .vices))
+        let quickAction = try #require(definition.availableQuickActions.first(where: { $0.id == "logHit" }))
+
+        #expect(quickAction.title == "Repeat Last")
+        #expect(quickAction.behavior == .command(.repeatMostRecentViceLog))
+    }
+
     @Test func homeLayoutMigrationInjectsFitnessUnlessExplicitlyRemoved() {
         let legacyLayout = HomeLayout(
             version: 2,
@@ -404,5 +413,79 @@ struct HomeWidgetModelTests {
             .tasksModule,
             .healthModule,
         ])
+    }
+
+    @Test func quickActionResolverUsesDefaultsAndCapsSelection() {
+        let definition = HomeWidgetDefinition(
+            moduleID: HomeWidgetModule.promises.rawValue,
+            title: "Promises",
+            iconSystemName: "hand.raised.fill",
+            mainDestination: .newPromise,
+            defaultQuickActionIDs: ["newPromise", "checkInDue", "activePromises"],
+            availableQuickActions: [
+                WidgetQuickAction(id: "newPromise", title: "New Promise", systemImage: "plus"),
+                WidgetQuickAction(id: "checkInDue", title: "Check In", systemImage: "checkmark.circle"),
+                WidgetQuickAction(id: "activePromises", title: "Active", systemImage: "hand.raised"),
+            ]
+        )
+        let descriptor = HomeWidgetDescriptor(
+            kind: .promisesModule,
+            displayName: "Promises",
+            iconSystemName: "hand.raised.fill",
+            module: .promises,
+            supportedSizes: [.small],
+            defaultSize: .small,
+            defaultAction: .newPromise,
+            isModuleWidget: true
+        )
+
+        #expect(
+            HomeWidgetQuickActionResolver.resolvedQuickActionIDs(
+                selectedQuickActionIDs: [],
+                definition: definition
+            ) == ["newPromise", "checkInDue"]
+        )
+        #expect(
+            HomeWidgetQuickActionResolver.resolvedQuickActionIDs(
+                selectedQuickActionIDs: ["activePromises", "missing", "newPromise", "checkInDue"],
+                definition: definition
+            ) == ["activePromises", "newPromise"]
+        )
+
+        let resolvedActions = HomeWidgetQuickActionResolver.resolvedQuickActions(
+            selectedQuickActionIDs: [],
+            descriptor: descriptor,
+            definition: definition
+        )
+
+        #expect(resolvedActions.map(\.id) == ["newPromise", "checkInDue"])
+    }
+
+    @Test func quickActionResolverFallsBackToDefaultActionWhenDefinitionMissing() {
+        let descriptor = HomeWidgetDescriptor(
+            kind: .promisesModule,
+            displayName: "Promises",
+            iconSystemName: "hand.raised.fill",
+            module: .promises,
+            supportedSizes: [.small],
+            defaultSize: .small,
+            defaultAction: .newPromise,
+            isModuleWidget: true
+        )
+
+        let resolvedActions = HomeWidgetQuickActionResolver.resolvedQuickActions(
+            selectedQuickActionIDs: [],
+            descriptor: descriptor,
+            definition: nil
+        )
+
+        #expect(resolvedActions.count == 1)
+        #expect(resolvedActions.first?.title == "New Promise")
+        #expect(resolvedActions.first?.systemImage == "hand.raised.fill")
+    }
+
+    @Test func moduleLandingTargetsRoutePromisesAndRoutines() {
+        #expect(HomeWidgetModule.promises.landingTarget == .promises)
+        #expect(HomeWidgetModule.routines.landingTarget == .routines)
     }
 }

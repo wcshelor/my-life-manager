@@ -5,11 +5,14 @@ First-pass Home dashboard support is implemented as the app's first tab.
 ## Purpose
 
 Home screen / secretary dashboard for surfacing what matters today across promises, routines, tasks, scheduled blocks, practice, and recovery.
+Home also hosts module-launch cards plus a small set of in-place command quick actions when a widget definition supports them.
 
 ## Current Objects
 
 - `HomeExecutionViewModel`
+- `HomeActionFeedback`
 - `HomeRoutineProgress`
+- `HomeWelcomeMessageCatalog`
 - `PromisePresenceViewModel`
 
 Future objects may include:

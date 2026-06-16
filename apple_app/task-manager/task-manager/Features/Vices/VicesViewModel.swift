@@ -154,15 +154,12 @@ final class VicesViewModel: ObservableObject {
             return
         }
 
-        let log = ViceLog(
-            viceID: viceID,
-            timestamp: nowProvider(),
-            amount: 1
-        )
-
         do {
-            try viceRepository.saveViceLog(log)
-            try recordSession(for: vice, at: log.timestamp)
+            let log = try ViceLogRecorder.recordHit(
+                for: vice,
+                at: nowProvider(),
+                repository: viceRepository
+            )
             load()
             setUndoState(logID: log.id, viceName: vice.name)
         } catch {
@@ -202,28 +199,6 @@ final class VicesViewModel: ObservableObject {
         pendingUndoViceName = nil
         undoExpirationTask?.cancel()
         undoExpirationTask = nil
-    }
-
-    private func recordSession(for vice: Vice, at timestamp: Date) throws {
-        let sessions = try viceRepository.fetchViceSessions()
-        let activeSession = sessions.first(where: { session in
-            session.viceID == vice.id && session.isActive(at: timestamp)
-        })
-
-        if var session = activeSession {
-            session.hitCount += 1
-            session.lastHitAt = timestamp
-            try viceRepository.saveViceSession(session)
-            return
-        }
-
-        let session = ViceSession(
-            viceID: vice.id,
-            startedAt: timestamp,
-            lastHitAt: timestamp,
-            hitCount: 1
-        )
-        try viceRepository.saveViceSession(session)
     }
 
     private func closeExpiredSessionsAndQueueDebriefs(now: Date) {

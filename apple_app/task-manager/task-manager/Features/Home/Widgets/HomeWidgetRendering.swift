@@ -7,7 +7,7 @@ struct HomeWidgetRenderContext {
     let descriptor: (HomeWidgetKind) -> HomeWidgetDescriptor?
     let definition: (HomeWidgetModule) -> HomeWidgetDefinition?
     let perform: (HomeWidgetDefaultAction, HomeWidgetInstance) -> Void
-    let performQuickAction: (String, HomeWidgetInstance) -> Void
+    let performQuickAction: (WidgetQuickAction, HomeWidgetInstance) -> Void
     let openProject: (UUID) -> Void
     let openRoutine: (UUID) -> Void
     let checkInPromise: (Promise) -> Void
@@ -252,126 +252,22 @@ private enum HomeModuleRenderer {
             title: definition?.title ?? descriptor?.displayName ?? "Module",
             systemImage: definition?.iconSystemName ?? descriptor?.iconSystemName ?? "square.grid.2x2",
             detail: widget.size == .large ? fallbackDetail : nil,
-            quickActions: resolvedQuickActions(for: widget, descriptor: descriptor, definition: definition),
+            quickActions: HomeWidgetQuickActionResolver.resolvedQuickActions(
+                for: widget.configuration,
+                descriptor: descriptor,
+                definition: definition
+            ),
             isEditing: context.isEditing,
-            onPrimaryTap: {
+            primaryAction: context.isEditing ? nil : {
                 guard let action = descriptor?.defaultAction else {
                     return
                 }
                 context.perform(action, widget)
             },
-            onQuickActionTap: { actionID in
-                context.performQuickAction(actionID, widget)
+            onQuickActionTap: { action in
+                context.performQuickAction(action, widget)
             }
         )
-    }
-
-    private static func resolvedQuickActions(
-        for widget: HomeWidgetInstance,
-        descriptor: HomeWidgetDescriptor?,
-        definition: HomeWidgetDefinition?
-    ) -> [WidgetQuickAction] {
-        guard let definition else {
-            return []
-        }
-
-        let availableIDs = Set(definition.availableQuickActions.map(\.id))
-        let preferredIDs = widget.configuration.selectedQuickActionIDs.isEmpty
-            ? definition.sanitizedDefaultQuickActionIDs
-            : widget.configuration.selectedQuickActionIDs.filter { availableIDs.contains($0) }
-        let selectedIDs = preferredIDs.prefix(2)
-        let resolved = definition.availableQuickActions.filter { selectedIDs.contains($0.id) }
-
-        if resolved.isEmpty, let action = descriptor?.defaultAction {
-            return [
-                WidgetQuickAction(
-                    id: "default-\(descriptor?.kind.rawValue ?? definition.moduleID)",
-                    title: title(for: action),
-                    systemImage: icon(for: action),
-                    role: nil
-                )
-            ]
-        }
-
-        return resolved
-    }
-
-    private static func title(for action: HomeWidgetDefaultAction) -> String {
-        switch action {
-        case .openCapture:
-            return "Capture"
-        case .reviewInbox:
-            return "Review"
-        case .openTasks:
-            return "Open Tasks"
-        case .openPlanner:
-            return "Open Planner"
-        case .openDebriefs:
-            return "Debriefs"
-        case .openProjects:
-            return "Open Projects"
-        case .openConfiguredProject:
-            return "Open Project"
-        case .newPromise:
-            return "New Promise"
-        case .checkInDuePromise:
-            return "Check In"
-        case .newRoutine:
-            return "New Routine"
-        case .openConfiguredRoutine:
-            return "Open Routine"
-        case .openShopping:
-            return "Open Shopping"
-        case .quickAddShopping:
-            return "Add Item"
-        case .openHealth:
-            return "Open Health"
-        case .openMusicPractice:
-            return "Open Practice"
-        case .openFitness:
-            return "Open Fitness"
-        case .openPeopleMemory:
-            return "Open People"
-        case .openVices:
-            return "Open Vices"
-        case .openFinance:
-            return "Open Finance"
-        }
-    }
-
-    private static func icon(for action: HomeWidgetDefaultAction) -> String {
-        switch action {
-        case .openCapture:
-            return "tray.and.arrow.down"
-        case .reviewInbox:
-            return "tray.full.fill"
-        case .openTasks:
-            return "checklist"
-        case .openPlanner, .openConfiguredRoutine:
-            return "calendar"
-        case .openDebriefs:
-            return "arrow.trianglehead.2.clockwise.rotate.90"
-        case .openProjects, .openConfiguredProject:
-            return "folder.fill"
-        case .newPromise, .checkInDuePromise:
-            return "hand.raised.fill"
-        case .newRoutine:
-            return "checklist.checked"
-        case .openShopping, .quickAddShopping:
-            return "cart.fill"
-        case .openHealth:
-            return "heart.text.square"
-        case .openMusicPractice:
-            return "music.note.list"
-        case .openFitness:
-            return "dumbbell.fill"
-        case .openPeopleMemory:
-            return "person.2.fill"
-        case .openVices:
-            return "flame.fill"
-        case .openFinance:
-            return "creditcard.fill"
-        }
     }
 }
 
@@ -624,11 +520,11 @@ struct HomeModuleWidgetCard: View {
     let detail: String?
     let quickActions: [WidgetQuickAction]
     let isEditing: Bool
-    let onPrimaryTap: () -> Void
-    let onQuickActionTap: (String) -> Void
+    let primaryAction: (() -> Void)?
+    let onQuickActionTap: (WidgetQuickAction) -> Void
 
     var body: some View {
-        HomeWidgetCardSurface {
+        HomeWidgetCardSurface(primaryAction: primaryAction) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 14) {
                     Image(systemName: systemImage)
@@ -655,13 +551,6 @@ struct HomeModuleWidgetCard: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.blue.opacity(isEditing ? 0.4 : 0.9))
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard isEditing == false else {
-                        return
-                    }
-                    onPrimaryTap()
-                }
 
                 if quickActions.isEmpty == false {
                     moduleQuickActionRow
@@ -674,7 +563,7 @@ struct HomeModuleWidgetCard: View {
         HStack(spacing: 8) {
             ForEach(Array(quickActions.prefix(2))) { action in
                 Button {
-                    onQuickActionTap(action.id)
+                    onQuickActionTap(action)
                 } label: {
                     Label(action.title, systemImage: action.systemImage)
                         .font(.caption.weight(.semibold))
@@ -961,22 +850,39 @@ struct HomeUnavailableWidgetCard: View {
 struct HomeWidgetCardSurface<Content: View>: View {
     let fillOpacity: Double
     let strokeOpacity: Double
+    let primaryAction: (() -> Void)?
     let content: Content
 
     init(
         fillOpacity: Double = 0.04,
         strokeOpacity: Double = 0.08,
+        primaryAction: (() -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.fillOpacity = fillOpacity
         self.strokeOpacity = strokeOpacity
+        self.primaryAction = primaryAction
         self.content = content()
     }
 
     var body: some View {
         content
             .padding(14)
-            .background(Color.primary.opacity(fillOpacity), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background {
+                if let primaryAction {
+                    Button(action: primaryAction) {
+                        cardBackground
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    cardBackground
+                }
+            }
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.primary.opacity(fillOpacity))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color.primary.opacity(strokeOpacity), lineWidth: 1)

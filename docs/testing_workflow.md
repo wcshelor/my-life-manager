@@ -28,6 +28,7 @@ Current automated confidence covers:
 - planner view-model acceptance, rejection, lifecycle, and reconciliation behavior
 - EventKit adapter behavior with mocked stores
 - Home layout/execution view-model behavior, including capture conversion and module summaries
+- Home widget model resolution and landing-target routing behavior
 - capture capability routing and candidate generation for Tasks, Shopping, and Music Practice
 - promise models, repositories, and Home aggregation behavior
 - routine models, repositories, and daily completion behavior
@@ -47,8 +48,16 @@ Use the baseline battery above, then add the narrowest matching targeted checks 
 
 - update or inspect `apple_app/task-manager/task-managerTests/Home/HomeExecutionViewModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Home/HomeLayoutViewModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Models/HomeWidgetModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Models/CaptureCapabilityTests.swift`
 - manually verify Home widget summaries or Capture Review flows when the UI changed
+
+### Routines
+
+- update or inspect `apple_app/task-manager/task-managerTests/Routines/RoutineModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Routines/SwiftDataRoutineRepositoryTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Home/HomeExecutionViewModelTests.swift`
+- manually verify routine creation, step reordering, step-link quick-action editing, and routine module landing-page launches when the UI changed
 
 ### Debriefs / Block Focus
 
@@ -148,9 +157,12 @@ Split manual testing by area depending on scope.
 Validate:
 
 - Home is the first visible tab
-- Home widgets render and launch the expected destination flows
+- Home widgets render and the card body opens the expected destination flow
+- Home quick-action buttons run their own action directly instead of bubbling into the module launch
 - long-pressing a Home widget enters edit mode, and edit-mode taps open widget quick-action editing instead of triggering the live widget action
 - module widgets show configurable in-card quick-action buttons and those selections persist after relaunch
+- promise module landing pages open from Home and from routine-step module links
+- the Home banner shows a stable welcome message and the transient confirmation appears after in-place quick actions
 - the App Refresh widget shows the last sideload/update time and a weekly reinstall countdown
 - pending Debrief, Vices, People, Fitness, and other module summaries refresh after underlying data changes
 - new promise creation
@@ -169,6 +181,10 @@ Validate:
 - daily routine creation
 - selected-weekday routine creation
 - item ordering
+- routine sessions show a top Edit action that pushes the step-list editor
+- routine editing supports adding steps and drag-reordering from the pushed editor
+- routine-step module links open the module landing page instead of the Home default action
+- routine-step quick buttons can be customized independently from the Home board
 - Home visibility for routines active today
 - item completion and uncompletion
 - per-day completion persistence after relaunch
@@ -289,6 +305,8 @@ Validate:
 
 - create or edit a vice
 - log a hit from the main vice card
+- repeat the most recent active vice from Home and confirm the Home summary updates without navigation
+- confirm the repeat-last Home quick action shows a gentle inline message when no prior active vice log exists
 - undo a recent hit inside the undo window
 - confirm repeated hits inside the session window aggregate into one active session
 - confirm session closure creates at most one pending Vice Session Debrief candidate
