@@ -67,6 +67,48 @@ struct SwiftDataViceRepositoryTests {
         #expect(try repository.fetchViceSessions() == [session])
     }
 
+    @Test @MainActor func repositoryRoundTripsViceGoals() throws {
+        let repository = try makeRepository()
+        let vice = Vice(name: "Coffee", unitLabel: "Cups")
+        let goal = ViceGoal(
+            viceID: vice.id,
+            maxOccurrences: 3,
+            startDate: Date(timeIntervalSince1970: 1_000),
+            deadline: Date(timeIntervalSince1970: 2_000)
+        )
+
+        try repository.saveVice(vice, replacingViceWithID: nil)
+        try repository.saveViceGoal(goal, replacingGoalWithID: nil)
+
+        #expect(try repository.fetchViceGoals(includeArchived: false) == [goal])
+    }
+
+    @Test @MainActor func repositoryFiltersAndArchivesViceGoals() throws {
+        let repository = try makeRepository()
+        let vice = Vice(name: "Alcohol", unitLabel: "Drinks")
+        let activeGoal = ViceGoal(
+            viceID: vice.id,
+            maxOccurrences: 4,
+            startDate: Date(timeIntervalSince1970: 3_000),
+            deadline: Date(timeIntervalSince1970: 4_000)
+        )
+        let archivedGoal = ViceGoal(
+            viceID: vice.id,
+            maxOccurrences: 1,
+            startDate: Date(timeIntervalSince1970: 5_000),
+            deadline: Date(timeIntervalSince1970: 6_000),
+            archivedAt: Date(timeIntervalSince1970: 6_100)
+        )
+
+        try repository.saveViceGoal(activeGoal, replacingGoalWithID: nil)
+        try repository.saveViceGoal(archivedGoal, replacingGoalWithID: nil)
+        try repository.archiveViceGoal(withID: activeGoal.id, archivedAt: Date(timeIntervalSince1970: 4_500))
+
+        #expect(try repository.fetchViceGoals(includeArchived: false).isEmpty)
+        #expect(try repository.fetchViceGoals(includeArchived: true).count == 2)
+        #expect(try repository.fetchViceGoals(includeArchived: true).allSatisfy(\.isArchived))
+    }
+
     @MainActor
     private func makeRepository() throws -> SwiftDataViceRepository {
         let container = try ModelContainerFactory.makeInMemoryContainer()

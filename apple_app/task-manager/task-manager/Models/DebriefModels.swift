@@ -247,8 +247,13 @@ nonisolated enum DebriefTemplates {
 nonisolated struct DebriefTemplateInferenceService: Sendable {
     func inferredTemplate(
         sourceType: DebriefSourceType,
+        calendarTitle: String? = nil,
         title: String? = nil
     ) -> DebriefTemplateKind {
+        if let calendarTitle, let inferred = inferredTemplate(for: calendarTitle) {
+            return inferred
+        }
+
         switch sourceType {
         case .viceSession:
             return .viceSession
@@ -261,12 +266,72 @@ nonisolated struct DebriefTemplateInferenceService: Sendable {
         case .jamSession:
             return .jamSession
         case .calendarBlock, .scheduledBlock, .routine, .workout:
-            return .workBlock
+            break
         case .custom:
-            guard let title else {
-                return .generic
-            }
-            return CalendarDebriefRecord.suggestedTemplate(for: title)
+            break
+        }
+
+        if let title, let inferred = inferredTemplate(for: title) {
+            return inferred
+        }
+
+        switch sourceType {
+        case .calendarBlock, .scheduledBlock, .routine, .workout:
+            return .generic
+        case .custom:
+            return .generic
+        case .viceSession:
+            return .viceSession
+        case .musicPracticeSession:
+            return .pianoPractice
+        case .meeting:
+            return .meeting
+        case .socialHangout:
+            return .social
+        case .jamSession:
+            return .jamSession
+        }
+    }
+
+    private func inferredTemplate(for text: String) -> DebriefTemplateKind? {
+        let normalized = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+
+        if normalized.isEmpty {
+            return nil
+        }
+
+        if matchesAnyKeyword(normalized, keywords: ["meeting", "call", "sync", "besprechung"]) {
+            return .meeting
+        }
+
+        if matchesAnyKeyword(normalized, keywords: ["dinner", "drinks", "party", "hang", "date", "coffee", "family", "friends"]) {
+            return .social
+        }
+
+        if matchesAnyKeyword(normalized, keywords: ["jam", "rehearsal", "band"]) {
+            return .jamSession
+        }
+
+        if matchesAnyKeyword(normalized, keywords: ["piano", "practice", "scales", "lesson", "music"]) {
+            return .pianoPractice
+        }
+
+        if matchesAnyKeyword(normalized, keywords: ["work", "admin", "study", "write", "coding", "project", "deep work"]) {
+            return .workBlock
+        }
+
+        return nil
+    }
+
+    private func matchesAnyKeyword(
+        _ text: String,
+        keywords: [String]
+    ) -> Bool {
+        keywords.contains { keyword in
+            text.contains(keyword)
         }
     }
 }
@@ -628,57 +693,15 @@ nonisolated struct CalendarDebriefRecord: Identifiable, Equatable, Sendable {
         return copy
     }
 
-    static func suggestedTemplate(for eventTitle: String) -> DebriefTemplateKind {
-        let normalized = eventTitle
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
-
-        if matchesAnyKeyword(
-            normalized,
-            keywords: ["meeting", "call", "sync", "besprechung"]
-        ) {
-            return .meeting
-        }
-
-        if matchesAnyKeyword(
-            normalized,
-            keywords: ["dinner", "drinks", "party", "hang", "date", "coffee"]
-        ) {
-            return .social
-        }
-
-        if matchesAnyKeyword(
-            normalized,
-            keywords: ["jam", "rehearsal", "band"]
-        ) {
-            return .jamSession
-        }
-
-        if matchesAnyKeyword(
-            normalized,
-            keywords: ["piano", "practice", "scales", "lesson"]
-        ) {
-            return .pianoPractice
-        }
-
-        if matchesAnyKeyword(
-            normalized,
-            keywords: ["work", "admin", "study", "write", "coding", "project", "deep work"]
-        ) {
-            return .workBlock
-        }
-
-        return .generic
-    }
-
-    private static func matchesAnyKeyword(
-        _ text: String,
-        keywords: [String]
-    ) -> Bool {
-        keywords.contains { keyword in
-            text.contains(keyword)
-        }
+    static func suggestedTemplate(
+        for eventTitle: String,
+        calendarTitle: String? = nil
+    ) -> DebriefTemplateKind {
+        DebriefTemplateInferenceService().inferredTemplate(
+            sourceType: .calendarBlock,
+            calendarTitle: calendarTitle,
+            title: eventTitle
+        )
     }
 
     private static func cleanedIdentifier(_ value: String?) -> String? {
@@ -846,6 +869,7 @@ nonisolated struct DebriefQueueService {
                 end: event.end,
                 suggestedTemplate: DebriefTemplateInferenceService().inferredTemplate(
                     sourceType: .calendarBlock,
+                    calendarTitle: event.calendarTitle,
                     title: event.title
                 ),
                 existingRecordID: pendingRecordByEventKey[eventKey]

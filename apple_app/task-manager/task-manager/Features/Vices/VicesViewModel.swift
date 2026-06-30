@@ -6,6 +6,7 @@ nonisolated struct ViceCardSummary: Identifiable, Equatable, Sendable {
     let todayCount: Int
     let lastLogAt: Date?
     let recentGaps: [TimeInterval]
+    let goalProgress: ViceGoalProgress?
 
     var id: UUID {
         vice.id
@@ -35,6 +36,7 @@ nonisolated struct ViceCardSummary: Identifiable, Equatable, Sendable {
 final class VicesViewModel: ObservableObject {
     @Published private(set) var vices: [Vice] = []
     @Published private(set) var logs: [ViceLog] = []
+    @Published private(set) var goals: [ViceGoal] = []
     @Published private(set) var pendingUndoLogID: UUID?
     @Published private(set) var pendingUndoViceName: String?
     @Published private(set) var errorMessage: String?
@@ -70,6 +72,9 @@ final class VicesViewModel: ObservableObject {
     var summaries: [ViceCardSummary] {
         let logsByViceID = Dictionary(grouping: logs, by: \.viceID)
         let now = nowProvider()
+        let activeGoalsByViceID = Dictionary(
+            uniqueKeysWithValues: goals.filter { $0.isActive(at: now) }.map { ($0.viceID, $0) }
+        )
 
         return activeVices.map { vice in
             let viceLogs = logsByViceID[vice.id] ?? []
@@ -78,12 +83,21 @@ final class VicesViewModel: ObservableObject {
                 .reduce(0) { partialResult, log in
                     partialResult + log.amount
                 }
+            let goalProgress = activeGoalsByViceID[vice.id].map { goal in
+                let goalCount = viceLogs
+                    .filter { goal.contains($0.timestamp) }
+                    .reduce(0) { partialResult, log in
+                        partialResult + log.amount
+                    }
+                return ViceGoalProgress(goal: goal, count: goalCount)
+            }
 
             return ViceCardSummary(
                 vice: vice,
                 todayCount: todayCount,
                 lastLogAt: viceLogs.first?.timestamp,
-                recentGaps: viceLogs.sortedForViceHistory().gapsBetweenRecentInstances()
+                recentGaps: viceLogs.sortedForViceHistory().gapsBetweenRecentInstances(),
+                goalProgress: goalProgress
             )
         }
     }
@@ -100,7 +114,10 @@ final class VicesViewModel: ObservableObject {
         do {
             vices = try viceRepository.fetchVices(includeArchived: true)
             logs = try viceRepository.fetchViceLogs()
+            goals = try viceRepository.fetchViceGoals(includeArchived: true)
             closeExpiredSessionsAndQueueDebriefs(now: nowProvider())
+            archiveExpiredGoals(now: nowProvider())
+            goals = try viceRepository.fetchViceGoals(includeArchived: true)
             errorMessage = nil
             hasLoaded = true
         } catch {
@@ -146,6 +163,51 @@ final class VicesViewModel: ObservableObject {
             load()
         } catch {
             errorMessage = "Unable to archive vice: \(error.localizedDescription)"
+        }
+    }
+
+    func saveGoal(
+        viceID: UUID,
+        maxOccurrences: Int,
+        deadline: Date,
+        replacingGoalWithID originalID: UUID? = nil
+    ) -> Bool {
+        let now = nowProvider()
+        let existingGoal = goals.first(where: { $0.id == originalID })
+        var goal = ViceGoal(
+            viceID: viceID,
+            maxOccurrences: maxOccurrences,
+            startDate: existingGoal?.startDate ?? now,
+            deadline: deadline,
+            createdAt: existingGoal?.createdAt ?? now,
+            updatedAt: now
+        )
+
+        if let existingGoal {
+            goal = ViceGoal(
+                id: existingGoal.id,
+                viceID: existingGoal.viceID,
+                maxOccurrences: maxOccurrences,
+                startDate: existingGoal.startDate,
+                deadline: deadline,
+                createdAt: existingGoal.createdAt,
+                updatedAt: now,
+                archivedAt: existingGoal.archivedAt
+            )
+        }
+
+        do {
+            let activeGoalsForVice = goals.filter { $0.viceID == viceID && $0.isArchived == false && $0.id != goal.id }
+            for activeGoal in activeGoalsForVice {
+                try viceRepository.archiveViceGoal(withID: activeGoal.id, archivedAt: now)
+            }
+
+            try viceRepository.saveViceGoal(goal, replacingGoalWithID: originalID)
+            load()
+            return true
+        } catch {
+            errorMessage = "Unable to save goal: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -210,6 +272,16 @@ final class VicesViewModel: ObservableObject {
             }
         } catch {
             errorMessage = "Unable to update vice sessions: \(error.localizedDescription)"
+        }
+    }
+
+    private func archiveExpiredGoals(now: Date) {
+        do {
+            for goal in goals where goal.isArchived == false && goal.isActive(at: now) == false {
+                try viceRepository.archiveViceGoal(withID: goal.id, archivedAt: now)
+            }
+        } catch {
+            errorMessage = "Unable to update vice goals: \(error.localizedDescription)"
         }
     }
 

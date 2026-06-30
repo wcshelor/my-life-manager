@@ -24,6 +24,7 @@ struct FinanceSummaryServiceTests {
         #expect(FinanceSummaryService.totalIncome(for: transactions) == 3_000)
         #expect(FinanceSummaryService.totalExpenses(for: transactions) == 1_000)
         #expect(FinanceSummaryService.monthlyBalance(for: transactions) == 2_000)
+        #expect(FinanceSummaryService.monthSummary(for: transactions).transactionCount == 3)
     }
 
     @Test func categorySpendingUsesExpensesOnly() {

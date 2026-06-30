@@ -14,13 +14,37 @@ nonisolated enum FitnessTag: String, CaseIterable, Codable, Hashable, Sendable {
 nonisolated enum ExerciseTrackingStyle: String, CaseIterable, Codable, Hashable, Sendable {
     case strengthSets
     case metricSummary
+    case stationaryBike
+    case normalBike
+    case walk
 
     var displayName: String {
         switch self {
         case .strengthSets:
             return "Strength Sets"
         case .metricSummary:
-            return "Metric Summary"
+            return "Custom Metrics"
+        case .stationaryBike:
+            return "Stationary Bike"
+        case .normalBike:
+            return "Normal Bike"
+        case .walk:
+            return "Walk"
+        }
+    }
+
+    var metricFields: [SelectableMetricField] {
+        switch self {
+        case .strengthSets:
+            return []
+        case .metricSummary:
+            return []
+        case .stationaryBike:
+            return [.durationMinutes, .difficultyLevel, .averageRPM, .distance]
+        case .normalBike:
+            return [.durationMinutes, .distance]
+        case .walk:
+            return [.durationMinutes, .distance]
         }
     }
 }
@@ -91,16 +115,55 @@ nonisolated enum ExerciseSortOption: String, CaseIterable, Codable, Hashable, Se
 }
 
 nonisolated struct StrengthSet: Equatable, Codable, Sendable {
-    var reps: Int
+    var reps: Double
     var weight: Double?
 
-    init(reps: Int, weight: Double? = nil) {
+    init(reps: Double, weight: Double? = nil) {
         self.reps = max(0, reps)
         self.weight = weight.map { max(0, $0) }
     }
 
     var isMeaningful: Bool {
         reps > 0 || weight != nil
+    }
+
+    var repsText: String {
+        Self.numberText(reps)
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let reps = try? container.decode(Double.self, forKey: .reps) {
+            self.reps = max(0, reps)
+        } else if let reps = try? container.decode(Int.self, forKey: .reps) {
+            self.reps = max(0, Double(reps))
+        } else {
+            self.reps = 0
+        }
+        self.weight = try container.decodeIfPresent(Double.self, forKey: .weight).map { max(0, $0) }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if reps.rounded() == reps {
+            try container.encode(Int(reps), forKey: .reps)
+        } else {
+            try container.encode(reps, forKey: .reps)
+        }
+        try container.encodeIfPresent(weight, forKey: .weight)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case reps
+        case weight
+    }
+
+    private static func numberText(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+
+        return String(format: "%.1f", value)
     }
 }
 
@@ -178,7 +241,11 @@ nonisolated struct FitnessExercise: Identifiable, Equatable, Hashable, Sendable 
     }
 
     var usesDistance: Bool {
-        selectableMetricFields.contains(.distance)
+        metricFields.contains(.distance)
+    }
+
+    var metricFields: [SelectableMetricField] {
+        trackingStyle == .metricSummary ? selectableMetricFields : trackingStyle.metricFields
     }
 
     static func cleanedName(from rawName: String) -> String? {
@@ -209,8 +276,14 @@ nonisolated struct FitnessExercise: Identifiable, Equatable, Hashable, Sendable 
         trackingStyle: ExerciseTrackingStyle,
         selectableMetricFields: [SelectableMetricField]
     ) -> DistanceUnit? {
-        guard trackingStyle == .metricSummary,
-              selectableMetricFields.contains(.distance) else {
+        let usesDistance: Bool
+        if trackingStyle == .metricSummary {
+            usesDistance = selectableMetricFields.contains(.distance)
+        } else {
+            usesDistance = trackingStyle.metricFields.contains(.distance)
+        }
+
+        guard usesDistance else {
             return nil
         }
 
@@ -240,6 +313,8 @@ nonisolated struct FitnessExercise: Identifiable, Equatable, Hashable, Sendable 
             }
 
             return true
+        case .stationaryBike, .normalBike, .walk:
+            return distanceUnit != nil
         }
     }
 }
@@ -305,6 +380,7 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
     var difficultyLevel: Int?
     var averageRPM: Int?
     var distance: Double?
+    var notes: String?
     let createdAt: Date
     var updatedAt: Date
 
@@ -317,6 +393,7 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
         difficultyLevel: Int? = nil,
         averageRPM: Int? = nil,
         distance: Double? = nil,
+        notes: String? = nil,
         createdAt: Date = .now,
         updatedAt: Date? = nil
     ) {
@@ -328,6 +405,7 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
         self.difficultyLevel = difficultyLevel.map { min(10, max(1, $0)) }
         self.averageRPM = averageRPM.map { max(0, $0) }
         self.distance = distance.map { max(0, $0) }
+        self.notes = Self.cleanedNotes(notes)
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }
@@ -340,8 +418,8 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
         switch exercise.trackingStyle {
         case .strengthSets:
             return strengthSets.isEmpty == false
-        case .metricSummary:
-            return exercise.selectableMetricFields.allSatisfy { field in
+        case .metricSummary, .stationaryBike, .normalBike, .walk:
+            return exercise.metricFields.allSatisfy { field in
                 switch field {
                 case .durationMinutes:
                     return durationMinutes != nil
@@ -360,10 +438,10 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
         if strengthSets.isEmpty == false {
             return strengthSets.enumerated().map { index, set in
                 if let weight = set.weight {
-                    return "Set \(index + 1): \(set.reps)x\(Self.numberText(weight))"
+                    return "Set \(index + 1): \(set.repsText)x\(Self.numberText(weight))"
                 }
 
-                return "Set \(index + 1): \(set.reps) reps"
+                return "Set \(index + 1): \(set.repsText) reps"
             }
             .joined(separator: " · ")
         }
@@ -389,13 +467,23 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
             exerciseID: exercise.id,
             performedAt: performedAt,
             strengthSets: exercise.trackingStyle == .strengthSets ? strengthSets : [],
-            durationMinutes: exercise.selectableMetricFields.contains(.durationMinutes) ? durationMinutes : nil,
-            difficultyLevel: exercise.selectableMetricFields.contains(.difficultyLevel) ? difficultyLevel : nil,
-            averageRPM: exercise.selectableMetricFields.contains(.averageRPM) ? averageRPM : nil,
-            distance: exercise.selectableMetricFields.contains(.distance) ? distance : nil,
+            durationMinutes: exercise.metricFields.contains(.durationMinutes) ? durationMinutes : nil,
+            difficultyLevel: exercise.metricFields.contains(.difficultyLevel) ? difficultyLevel : nil,
+            averageRPM: exercise.metricFields.contains(.averageRPM) ? averageRPM : nil,
+            distance: exercise.metricFields.contains(.distance) ? distance : nil,
+            notes: notes,
             createdAt: .now,
             updatedAt: .now
         )
+    }
+
+    private static func cleanedNotes(_ rawNotes: String?) -> String? {
+        guard let rawNotes else {
+            return nil
+        }
+
+        let cleaned = rawNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
     }
 
     private static func numberText(_ value: Double) -> String {
@@ -404,6 +492,54 @@ nonisolated struct ExerciseSession: Identifiable, Equatable, Sendable {
         }
 
         return String(format: "%.1f", value)
+    }
+}
+
+nonisolated struct FitnessRoute: Identifiable, Equatable, Hashable, Sendable {
+    let id: UUID
+    var name: String
+    var distance: Double
+    var distanceUnit: DistanceUnit
+    let createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        distance: Double,
+        distanceUnit: DistanceUnit,
+        createdAt: Date = .now,
+        updatedAt: Date? = nil
+    ) {
+        self.id = id
+        self.name = Self.cleanedName(from: name) ?? name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.distance = max(0, distance)
+        self.distanceUnit = distanceUnit
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt ?? createdAt
+    }
+
+    init?(
+        newName: String,
+        distance: Double,
+        distanceUnit: DistanceUnit,
+        createdAt: Date = .now
+    ) {
+        guard let cleanedName = Self.cleanedName(from: newName),
+              distance > 0 else {
+            return nil
+        }
+
+        self.init(
+            name: cleanedName,
+            distance: distance,
+            distanceUnit: distanceUnit,
+            createdAt: createdAt
+        )
+    }
+
+    static func cleanedName(from rawName: String) -> String? {
+        MyTask.cleanedTitle(from: rawName)
     }
 }
 

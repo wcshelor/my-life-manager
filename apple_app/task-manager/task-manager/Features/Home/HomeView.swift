@@ -3044,7 +3044,10 @@ private struct CalendarBlockFocusSheet: View {
             )
 
         if initialDraft.preferredDebriefTemplateKind == nil {
-            initialDraft.preferredDebriefTemplateKind = CalendarDebriefRecord.suggestedTemplate(for: event.title)
+            initialDraft.preferredDebriefTemplateKind = CalendarDebriefRecord.suggestedTemplate(
+                for: event.title,
+                calendarTitle: event.calendarTitle
+            )
         }
 
         _draft = State(initialValue: initialDraft)

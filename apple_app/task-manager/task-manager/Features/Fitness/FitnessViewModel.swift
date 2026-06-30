@@ -28,7 +28,7 @@ nonisolated struct HomeFitnessSummary: Equatable, Sendable {
         }
 
         if templates.isEmpty == false {
-            return "\(templates.count) workout day\(templates.count == 1 ? "" : "s")"
+            return "\(templates.count) workout\(templates.count == 1 ? "" : "s")"
         }
 
         if exercises.isEmpty == false {
@@ -76,6 +76,7 @@ final class FitnessViewModel: ObservableObject {
     @Published private(set) var exercises: [FitnessExercise] = []
     @Published private(set) var workoutTemplates: [WorkoutTemplate] = []
     @Published private(set) var sessions: [ExerciseSession] = []
+    @Published private(set) var routes: [FitnessRoute] = []
     @Published var sortOption: ExerciseSortOption = .recent
     @Published private(set) var errorMessage: String?
 
@@ -102,8 +103,25 @@ final class FitnessViewModel: ObservableObject {
         Dictionary(grouping: sessions, by: \.exerciseID)
     }
 
+    var latestSessionDatesByExerciseID: [UUID: Date] {
+        Dictionary(uniqueKeysWithValues: sessionsByExerciseID.compactMap { exerciseID, sessions in
+            guard let latestSession = sessions.first else {
+                return nil
+            }
+
+            return (exerciseID, latestSession.performedAt)
+        })
+    }
+
     var sortedExercises: [FitnessExercise] {
-        switch sortOption {
+        sortExercises(exercises, by: sortOption)
+    }
+
+    func sortExercises(
+        _ exercises: [FitnessExercise],
+        by option: ExerciseSortOption
+    ) -> [FitnessExercise] {
+        switch option {
         case .alphabetical:
             return exercises.sortedAlphabetically()
         case .tag:
@@ -120,12 +138,9 @@ final class FitnessViewModel: ObservableObject {
                 return leftExercise.id.uuidString < rightExercise.id.uuidString
             }
         case .recent:
-            let latestByExercise = Dictionary(uniqueKeysWithValues: exercises.map { exercise in
-                (exercise.id, sessionsByExerciseID[exercise.id]?.first?.performedAt)
-            })
             return exercises.sorted { leftExercise, rightExercise in
-                let leftDate = latestByExercise[leftExercise.id] ?? nil
-                let rightDate = latestByExercise[rightExercise.id] ?? nil
+                let leftDate = latestSessionDatesByExerciseID[leftExercise.id]
+                let rightDate = latestSessionDatesByExerciseID[rightExercise.id]
                 switch (leftDate, rightDate) {
                 case let (leftDate?, rightDate?):
                     if leftDate != rightDate {
@@ -175,6 +190,14 @@ final class FitnessViewModel: ObservableObject {
         )
     }
 
+    func routes(for distanceUnit: DistanceUnit?) -> [FitnessRoute] {
+        guard let distanceUnit else {
+            return []
+        }
+
+        return routes.filter { $0.distanceUnit == distanceUnit }
+    }
+
     func loadIfNeeded() {
         guard hasLoaded == false else {
             return
@@ -188,6 +211,7 @@ final class FitnessViewModel: ObservableObject {
             exercises = try fitnessRepository.fetchExercises()
             workoutTemplates = try fitnessRepository.fetchWorkoutTemplates()
             sessions = try fitnessRepository.fetchExerciseSessions()
+            routes = try fitnessRepository.fetchRoutes()
             errorMessage = nil
             hasLoaded = true
         } catch {
@@ -252,7 +276,7 @@ final class FitnessViewModel: ObservableObject {
             try fitnessRepository.saveWorkoutTemplate(template, replacingWorkoutTemplateWithID: originalID)
             load()
         } catch {
-            errorMessage = "Unable to save workout day: \(error.localizedDescription)"
+            errorMessage = "Unable to save workout: \(error.localizedDescription)"
         }
     }
 
@@ -261,7 +285,7 @@ final class FitnessViewModel: ObservableObject {
             try fitnessRepository.deleteWorkoutTemplate(withID: id)
             load()
         } catch {
-            errorMessage = "Unable to delete workout day: \(error.localizedDescription)"
+            errorMessage = "Unable to delete workout: \(error.localizedDescription)"
         }
     }
 
@@ -280,6 +304,24 @@ final class FitnessViewModel: ObservableObject {
             load()
         } catch {
             errorMessage = "Unable to delete session: \(error.localizedDescription)"
+        }
+    }
+
+    func saveRoute(_ route: FitnessRoute, replacingRouteWithID originalID: UUID? = nil) {
+        do {
+            try fitnessRepository.saveRoute(route, replacingRouteWithID: originalID)
+            load()
+        } catch {
+            errorMessage = "Unable to save route: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteRoute(withID id: UUID) {
+        do {
+            try fitnessRepository.deleteRoute(withID: id)
+            load()
+        } catch {
+            errorMessage = "Unable to delete route: \(error.localizedDescription)"
         }
     }
 

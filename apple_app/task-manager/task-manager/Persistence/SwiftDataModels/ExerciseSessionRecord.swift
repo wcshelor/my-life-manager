@@ -11,6 +11,7 @@ final class ExerciseSessionRecord {
     var difficultyLevel: Int?
     var averageRPM: Int?
     var distance: Double?
+    var notes: String?
     var createdAt: Date = Date.distantPast
     var updatedAt: Date = Date.distantPast
 
@@ -28,6 +29,7 @@ final class ExerciseSessionRecord {
             difficultyLevel: difficultyLevel,
             averageRPM: averageRPM,
             distance: distance,
+            notes: notes,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -42,6 +44,7 @@ final class ExerciseSessionRecord {
         difficultyLevel = session.difficultyLevel
         averageRPM = session.averageRPM
         distance = session.distance
+        notes = session.notes
         createdAt = session.createdAt
         updatedAt = session.updatedAt
     }

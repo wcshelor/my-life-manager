@@ -19,17 +19,16 @@ struct FitnessView: View {
     var body: some View {
         NavigationStack {
             FitnessTrackerView(viewModel: viewModel, onChange: onChange)
-            .navigationTitle("Fitness")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
+                .navigationTitle("Fitness")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") {
+                            dismiss()
+                        }
                     }
                 }
-            }
         }
     }
-
 }
 
 struct FitnessTrackerView: View {
@@ -40,6 +39,12 @@ struct FitnessTrackerView: View {
     @State private var selectedExercise: FitnessExercise?
     @State private var presentedSheet: FitnessSheet?
 
+    private let workoutColumns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
+
     var body: some View {
         List {
             if let errorMessage = viewModel.errorMessage {
@@ -48,38 +53,34 @@ struct FitnessTrackerView: View {
                     .foregroundStyle(.red)
             }
 
-            Section("Workout Days") {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: [GridItem(.fixed(110))], spacing: 12) {
+            Section("Workouts") {
+                LazyVGrid(columns: workoutColumns, spacing: 12) {
+                    ForEach(viewModel.workoutTemplates) { template in
                         Button {
-                            presentedSheet = .template(nil)
+                            selectedTemplate = template
                         } label: {
-                            AddWorkoutDayCard()
+                            WorkoutCard(template: template)
                         }
                         .buttonStyle(.plain)
-
-                        ForEach(viewModel.workoutTemplates) { template in
-                            Button {
-                                selectedTemplate = template
-                            } label: {
-                                WorkoutDayCard(template: template)
+                        .contextMenu {
+                            Button("Edit") {
+                                presentedSheet = .template(template)
                             }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("Edit") {
-                                    presentedSheet = .template(template)
-                                }
-                                Button("Delete", role: .destructive) {
-                                    viewModel.deleteWorkoutTemplate(withID: template.id)
-                                    onChange()
-                                }
+                            Button("Delete", role: .destructive) {
+                                viewModel.deleteWorkoutTemplate(withID: template.id)
+                                onChange()
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+
+                    Button {
+                        presentedSheet = .template(nil)
+                    } label: {
+                        AddWorkoutCard()
+                    }
+                    .buttonStyle(.plain)
                 }
-                .frame(height: 130)
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .padding(.vertical, 4)
             }
 
             Section {
@@ -151,7 +152,8 @@ struct FitnessTrackerView: View {
                 case .template(let template):
                     WorkoutTemplateFormView(
                         initialTemplate: template,
-                        exercises: viewModel.exercises
+                        exercises: viewModel.exercises,
+                        latestSessionDatesByExerciseID: viewModel.latestSessionDatesByExerciseID
                     ) { savedTemplate in
                         viewModel.saveWorkoutTemplate(
                             savedTemplate,
@@ -170,7 +172,12 @@ struct FitnessTrackerView: View {
                         exercise: exercise,
                         initialSession: session,
                         lastSession: viewModel.latestSession(for: exercise.id),
-                        isDraft: isDraft
+                        isDraft: isDraft,
+                        routes: viewModel.routes(for: exercise.distanceUnit),
+                        onSaveRoute: { route in
+                            viewModel.saveRoute(route)
+                            onChange()
+                        }
                     ) { savedSession in
                         viewModel.saveExerciseSession(
                             savedSession,
@@ -236,7 +243,7 @@ private enum FitnessSheet: Identifiable {
     }
 }
 
-private struct AddWorkoutDayCard: View {
+private struct AddWorkoutCard: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 14)
             .fill(Color.secondary.opacity(0.12))
@@ -244,16 +251,18 @@ private struct AddWorkoutDayCard: View {
                 VStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
                         .font(.title2)
-                    Text("Workout Day")
+                    Text("Add Workout")
                         .font(.headline)
+                        .multilineTextAlignment(.center)
                 }
                 .foregroundStyle(.primary)
+                .padding(8)
             }
-            .frame(width: 140, height: 110)
+            .frame(maxWidth: .infinity, minHeight: 108)
     }
 }
 
-private struct WorkoutDayCard: View {
+private struct WorkoutCard: View {
     let template: WorkoutTemplate
 
     var body: some View {
@@ -265,13 +274,14 @@ private struct WorkoutDayCard: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(2)
+                    Spacer(minLength: 0)
                     Text("\(template.exerciseIDs.count) exercise\(template.exerciseIDs.count == 1 ? "" : "s")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding()
             }
-            .frame(width: 160, height: 110)
+            .frame(maxWidth: .infinity, minHeight: 108)
     }
 }
 
@@ -397,10 +407,10 @@ private struct ExerciseDetailView: View {
                 if let distanceUnit = exercise.distanceUnit {
                     LabeledContent("Distance Unit", value: distanceUnit.displayName)
                 }
-                if exercise.selectableMetricFields.isEmpty == false {
+                if exercise.metricFields.isEmpty == false {
                     LabeledContent(
                         "Fields",
-                        value: exercise.selectableMetricFields.map(\.displayName).joined(separator: ", ")
+                        value: exercise.metricFields.map(\.displayName).joined(separator: ", ")
                     )
                 }
                 if loggedToday {
@@ -418,6 +428,11 @@ private struct ExerciseDetailView: View {
                         Text(latestSession.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if let notes = latestSession.notes {
+                            Text(notes)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -426,12 +441,25 @@ private struct ExerciseDetailView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(sessions) { session in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(session.performedAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.body.weight(.semibold))
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(session.performedAt.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.body.weight(.semibold))
+                                Spacer()
+                                Button("Edit") {
+                                    onEditSession(session)
+                                }
+                                .font(.caption.weight(.semibold))
+                                .buttonStyle(.borderless)
+                            }
                             Text(session.summaryText)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let notes = session.notes {
+                                Text(notes)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .padding(.vertical, 4)
                         .swipeActions {
@@ -512,7 +540,7 @@ private struct FitnessExerciseFormView: View {
                         }
                     }
                 }
-            } else {
+            } else if trackingStyle == .metricSummary {
                 Section("Metrics") {
                     ForEach(SelectableMetricField.allCases, id: \.self) { field in
                         Toggle(
@@ -538,9 +566,25 @@ private struct FitnessExerciseFormView: View {
                         }
                     }
                 }
+            } else {
+                Section("Preset") {
+                    Text(presetDescription)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Picker("Distance Unit", selection: $distanceUnit) {
+                        ForEach(DistanceUnit.allCases, id: \.self) { unit in
+                            Text(unit.displayName).tag(unit)
+                        }
+                    }
+                }
             }
         }
         .navigationTitle(initialExercise == nil ? "New Exercise" : "Edit Exercise")
+        .onChange(of: trackingStyle) { _, newStyle in
+            if newStyle == .stationaryBike || newStyle == .normalBike || newStyle == .walk {
+                tag = .cardio
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -558,6 +602,19 @@ private struct FitnessExerciseFormView: View {
         }
     }
 
+    private var presetDescription: String {
+        switch trackingStyle {
+        case .stationaryBike:
+            return "Fast path for duration, difficulty, average RPM, and distance."
+        case .normalBike:
+            return "Fast path for duration and distance."
+        case .walk:
+            return "Fast path for duration and distance."
+        default:
+            return ""
+        }
+    }
+
     private func makeExercise() -> FitnessExercise? {
         let fields = Array(metricFields)
         guard let cleanedName = FitnessExercise.cleanedName(from: name),
@@ -565,7 +622,7 @@ private struct FitnessExerciseFormView: View {
                 trackingStyle: trackingStyle,
                 selectableMetricFields: fields,
                 weightUnit: trackingStyle == .strengthSets ? weightUnit : nil,
-                distanceUnit: trackingStyle == .metricSummary && metricFields.contains(.distance) ? distanceUnit : nil
+                distanceUnit: usesDistance ? distanceUnit : nil
               ) else {
             return nil
         }
@@ -575,12 +632,20 @@ private struct FitnessExerciseFormView: View {
             name: cleanedName,
             tag: tag,
             trackingStyle: trackingStyle,
-            selectableMetricFields: fields,
+            selectableMetricFields: trackingStyle == .metricSummary ? fields : [],
             weightUnit: trackingStyle == .strengthSets ? weightUnit : nil,
-            distanceUnit: trackingStyle == .metricSummary && metricFields.contains(.distance) ? distanceUnit : nil,
+            distanceUnit: usesDistance ? distanceUnit : nil,
             createdAt: initialExercise?.createdAt ?? .now,
             updatedAt: .now
         )
+    }
+
+    private var usesDistance: Bool {
+        if trackingStyle == .metricSummary {
+            return metricFields.contains(.distance)
+        }
+
+        return trackingStyle.metricFields.contains(.distance)
     }
 }
 
@@ -589,20 +654,24 @@ private struct WorkoutTemplateFormView: View {
 
     let initialTemplate: WorkoutTemplate?
     let exercises: [FitnessExercise]
+    let latestSessionDatesByExerciseID: [UUID: Date]
     let onSave: (WorkoutTemplate) -> Void
     let onDelete: () -> Void
 
     @State private var name: String
     @State private var exerciseIDs: [UUID]
+    @State private var addExistingSortOption: ExerciseSortOption = .recent
 
     init(
         initialTemplate: WorkoutTemplate?,
         exercises: [FitnessExercise],
+        latestSessionDatesByExerciseID: [UUID: Date],
         onSave: @escaping (WorkoutTemplate) -> Void,
         onDelete: @escaping () -> Void
     ) {
         self.initialTemplate = initialTemplate
         self.exercises = exercises
+        self.latestSessionDatesByExerciseID = latestSessionDatesByExerciseID
         self.onSave = onSave
         self.onDelete = onDelete
         _name = State(initialValue: initialTemplate?.name ?? "")
@@ -611,7 +680,7 @@ private struct WorkoutTemplateFormView: View {
 
     var body: some View {
         Form {
-            Section("Workout Day") {
+            Section("Workout") {
                 TextField("Name", text: $name)
             }
 
@@ -638,15 +707,32 @@ private struct WorkoutTemplateFormView: View {
                 }
             }
 
+            Section {
+                Picker("Add Existing Sort", selection: $addExistingSortOption) {
+                    ForEach(ExerciseSortOption.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             Section("Add Existing") {
                 ForEach(availableExercises) { exercise in
-                    Button(exercise.name) {
+                    Button {
                         exerciseIDs.append(exercise.id)
+                    } label: {
+                        HStack {
+                            Text(exercise.name)
+                            Spacer()
+                            Text(exercise.tag.displayName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
         }
-        .navigationTitle(initialTemplate == nil ? "New Workout Day" : "Edit Workout Day")
+        .navigationTitle(initialTemplate == nil ? "New Workout" : "Edit Workout")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -676,7 +762,48 @@ private struct WorkoutTemplateFormView: View {
     }
 
     private var availableExercises: [FitnessExercise] {
-        exercises.filter { exerciseIDs.contains($0.id) == false }
+        let remainingExercises = exercises.filter { exerciseIDs.contains($0.id) == false }
+        switch addExistingSortOption {
+        case .alphabetical:
+            return remainingExercises.sortedAlphabetically()
+        case .tag:
+            return remainingExercises.sorted { leftExercise, rightExercise in
+                if leftExercise.tag != rightExercise.tag {
+                    return leftExercise.tag.displayName < rightExercise.tag.displayName
+                }
+
+                let comparison = leftExercise.name.localizedCaseInsensitiveCompare(rightExercise.name)
+                if comparison != .orderedSame {
+                    return comparison == .orderedAscending
+                }
+
+                return leftExercise.id.uuidString < rightExercise.id.uuidString
+            }
+        case .recent:
+            return remainingExercises.sorted { leftExercise, rightExercise in
+                let leftDate = latestSessionDatesByExerciseID[leftExercise.id]
+                let rightDate = latestSessionDatesByExerciseID[rightExercise.id]
+                switch (leftDate, rightDate) {
+                case let (leftDate?, rightDate?):
+                    if leftDate != rightDate {
+                        return leftDate > rightDate
+                    }
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                case (.none, .none):
+                    break
+                }
+
+                let comparison = leftExercise.name.localizedCaseInsensitiveCompare(rightExercise.name)
+                if comparison != .orderedSame {
+                    return comparison == .orderedAscending
+                }
+
+                return leftExercise.id.uuidString < rightExercise.id.uuidString
+            }
+        }
     }
 
     private func makeTemplate() -> WorkoutTemplate? {
@@ -706,6 +833,8 @@ private struct ExerciseSessionFormView: View {
     let initialSession: ExerciseSession?
     let lastSession: ExerciseSession?
     let isDraft: Bool
+    let routes: [FitnessRoute]
+    let onSaveRoute: (FitnessRoute) -> Void
     let onSave: (ExerciseSession) -> Void
 
     @State private var strengthSets: [StrengthSet]
@@ -713,24 +842,31 @@ private struct ExerciseSessionFormView: View {
     @State private var difficultyLevel: Int
     @State private var averageRPM: Int
     @State private var distance: Double
+    @State private var notes: String
+    @State private var routeSheet: SessionRouteSheet?
 
     init(
         exercise: FitnessExercise,
         initialSession: ExerciseSession?,
         lastSession: ExerciseSession?,
         isDraft: Bool,
+        routes: [FitnessRoute],
+        onSaveRoute: @escaping (FitnessRoute) -> Void,
         onSave: @escaping (ExerciseSession) -> Void
     ) {
         self.exercise = exercise
         self.initialSession = initialSession
         self.lastSession = lastSession
         self.isDraft = isDraft
+        self.routes = routes
+        self.onSaveRoute = onSaveRoute
         self.onSave = onSave
         _strengthSets = State(initialValue: initialSession?.strengthSets ?? [StrengthSet(reps: 0)])
         _durationMinutes = State(initialValue: initialSession?.durationMinutes ?? 0)
         _difficultyLevel = State(initialValue: initialSession?.difficultyLevel ?? 5)
         _averageRPM = State(initialValue: initialSession?.averageRPM ?? 0)
         _distance = State(initialValue: initialSession?.distance ?? 0)
+        _notes = State(initialValue: initialSession?.notes ?? "")
     }
 
     var body: some View {
@@ -738,8 +874,37 @@ private struct ExerciseSessionFormView: View {
             draftSeedNoticeSection
             lastSessionSection
             sessionFieldsSection
+            notesSection
         }
         .navigationTitle(isDraft ? "Quick Log" : "Edit Session")
+        .sheet(item: $routeSheet) { sheet in
+            NavigationStack {
+                switch sheet {
+                case .picker:
+                    RoutePickerView(
+                        routes: routes,
+                        distanceUnit: exercise.distanceUnit ?? .miles,
+                        onSelect: { route in
+                            distance = route.distance
+                            routeSheet = nil
+                        },
+                        onCreateNew: {
+                            routeSheet = .newRoute
+                        }
+                    )
+                case .newRoute:
+                    NewRouteFormView(
+                        distanceUnit: exercise.distanceUnit ?? .miles,
+                        initialDistance: distance
+                    ) { route in
+                        onSaveRoute(route)
+                        distance = route.distance
+                        routeSheet = nil
+                    }
+                }
+            }
+            .presentationDetents(sheet == .newRoute ? [.medium] : [.fraction(0.55)])
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -783,14 +948,25 @@ private struct ExerciseSessionFormView: View {
             )
         } else {
             MetricSessionSection(
-                selectableMetricFields: exercise.selectableMetricFields,
+                trackingStyle: exercise.trackingStyle,
+                metricFields: exercise.metricFields,
                 distanceLabel: exercise.distanceUnit?.displayName ?? "",
                 isDraft: isDraft,
                 durationMinutes: $durationMinutes,
                 difficultyLevel: $difficultyLevel,
                 averageRPM: $averageRPM,
-                distance: $distance
+                distance: $distance,
+                onOpenRoutes: exercise.metricFields.contains(.distance) ? {
+                    routeSheet = .picker
+                } : nil
             )
+        }
+    }
+
+    private var notesSection: some View {
+        Section("Notes") {
+            TextField("Optional note", text: $notes, axis: .vertical)
+                .lineLimit(3...6)
         }
     }
 
@@ -800,13 +976,28 @@ private struct ExerciseSessionFormView: View {
             exerciseID: exercise.id,
             performedAt: initialSession?.performedAt ?? .now,
             strengthSets: exercise.trackingStyle == .strengthSets ? strengthSets : [],
-            durationMinutes: exercise.selectableMetricFields.contains(.durationMinutes) ? durationMinutes : nil,
-            difficultyLevel: exercise.selectableMetricFields.contains(.difficultyLevel) ? difficultyLevel : nil,
-            averageRPM: exercise.selectableMetricFields.contains(.averageRPM) ? averageRPM : nil,
-            distance: exercise.selectableMetricFields.contains(.distance) ? distance : nil,
+            durationMinutes: exercise.metricFields.contains(.durationMinutes) ? durationMinutes : nil,
+            difficultyLevel: exercise.metricFields.contains(.difficultyLevel) ? difficultyLevel : nil,
+            averageRPM: exercise.metricFields.contains(.averageRPM) ? averageRPM : nil,
+            distance: exercise.metricFields.contains(.distance) ? distance : nil,
+            notes: notes,
             createdAt: initialSession?.createdAt ?? .now,
             updatedAt: .now
         )
+    }
+}
+
+private enum SessionRouteSheet: Identifiable, Equatable {
+    case picker
+    case newRoute
+
+    var id: String {
+        switch self {
+        case .picker:
+            return "picker"
+        case .newRoute:
+            return "new-route"
+        }
     }
 }
 
@@ -842,6 +1033,11 @@ private struct SessionSummarySection: View {
             Text(lastSession.summaryText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let notes = lastSession.notes {
+                Text(notes)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
@@ -856,13 +1052,14 @@ private struct StrengthSessionSection: View {
         Section("Sets") {
             ForEach(strengthSets.indices, id: \.self) { index in
                 StrengthSetRow(
+                    setNumber: index + 1,
                     reps: Binding(
                         get: { strengthSets[index].reps },
-                        set: { strengthSets[index].reps = $0 }
+                        set: { strengthSets[index].reps = max(0, $0) }
                     ),
                     weight: Binding(
-                        get: { strengthSets[index].weight ?? 0 },
-                        set: { strengthSets[index].weight = $0 == 0 ? nil : $0 }
+                        get: { strengthSets[index].weight },
+                        set: { strengthSets[index].weight = $0 }
                     ),
                     weightLabel: weightLabel,
                     isDraft: isDraft
@@ -873,35 +1070,173 @@ private struct StrengthSessionSection: View {
             }
 
             Button("Add Set") {
-                strengthSets.append(StrengthSet(reps: 0))
+                strengthSets.append(StrengthSet(reps: 0, weight: strengthSets.last?.weight))
             }
         }
     }
 }
 
 private struct StrengthSetRow: View {
-    @Binding var reps: Int
-    @Binding var weight: Double
+    let setNumber: Int
+    @Binding var reps: Double
+    @Binding var weight: Double?
 
     let weightLabel: String
     let isDraft: Bool
 
+    @State private var showingWeightPicker = false
+
     var body: some View {
-        HStack {
-            Stepper(value: $reps, in: 0...100) {
-                Text("Reps \(reps)")
-                    .foregroundStyle(isDraft ? .secondary : .primary)
+        HStack(spacing: 10) {
+            Stepper(value: wholeRepsBinding, in: 0...100) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Set \(setNumber)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Reps \(repsText)")
+                        .foregroundStyle(isDraft ? .secondary : .primary)
+                }
             }
-            TextField(weightLabel, value: $weight, format: .number)
+
+            Picker("Half Rep", selection: halfRepBinding) {
+                Text("0").tag(false)
+                Text(".5").tag(true)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 74)
+
+            Button {
+                showingWeightPicker = true
+            } label: {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(weightText)
+                        .font(.subheadline.weight(.semibold))
+                    Text(weightLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minWidth: 68, alignment: .trailing)
                 .foregroundStyle(isDraft ? .secondary : .primary)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
+            }
+            .buttonStyle(.plain)
+        }
+        .sheet(isPresented: $showingWeightPicker) {
+            NavigationStack {
+                WeightWheelPickerSheet(weight: $weight, unitLabel: weightLabel)
+            }
+            .presentationDetents([.height(280)])
+        }
+    }
+
+    private var wholeRepsBinding: Binding<Int> {
+        Binding(
+            get: { Int(reps.rounded(.down)) },
+            set: { newValue in
+                reps = Double(max(0, newValue)) + (hasHalfRep ? 0.5 : 0)
+            }
+        )
+    }
+
+    private var halfRepBinding: Binding<Bool> {
+        Binding(
+            get: { hasHalfRep },
+            set: { newValue in
+                let wholePart = Int(reps.rounded(.down))
+                reps = Double(wholePart) + (newValue ? 0.5 : 0)
+            }
+        )
+    }
+
+    private var hasHalfRep: Bool {
+        abs(reps.truncatingRemainder(dividingBy: 1) - 0.5) < 0.1
+    }
+
+    private var repsText: String {
+        if reps.rounded() == reps {
+            return String(Int(reps))
+        }
+
+        return String(format: "%.1f", reps)
+    }
+
+    private var weightText: String {
+        guard let weight else {
+            return "Body"
+        }
+
+        if weight.rounded() == weight {
+            return String(Int(weight))
+        }
+
+        return String(format: "%.1f", weight)
+    }
+}
+
+private struct WeightWheelPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var weight: Double?
+
+    let unitLabel: String
+
+    @State private var wholePart: Int
+    @State private var halfPart: Int
+
+    init(weight: Binding<Double?>, unitLabel: String) {
+        _weight = weight
+        self.unitLabel = unitLabel
+
+        let currentWeight = weight.wrappedValue ?? 0
+        let wholePart = Int(currentWeight.rounded(.down))
+        let fractionalPart = currentWeight - Double(wholePart)
+        _wholePart = State(initialValue: wholePart)
+        _halfPart = State(initialValue: fractionalPart >= 0.5 ? 1 : 0)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button("Clear") {
+                    weight = nil
+                    dismiss()
+                }
+                Spacer()
+                Text("Weight")
+                    .font(.headline)
+                Spacer()
+                Button("Done") {
+                    let selectedWeight = Double(wholePart) + (halfPart == 1 ? 0.5 : 0)
+                    weight = selectedWeight == 0 ? nil : selectedWeight
+                    dismiss()
+                }
+            }
+            .padding()
+
+            HStack(spacing: 0) {
+                Picker("Whole", selection: $wholePart) {
+                    ForEach(0...500, id: \.self) { value in
+                        Text("\(value)").tag(value)
+                    }
+                }
+                .pickerStyle(.wheel)
+
+                Picker("Half", selection: $halfPart) {
+                    Text(".0").tag(0)
+                    Text(".5").tag(1)
+                }
+                .pickerStyle(.wheel)
+
+                Text(unitLabel)
+                    .font(.headline)
+                    .frame(width: 42)
+            }
         }
     }
 }
 
 private struct MetricSessionSection: View {
-    let selectableMetricFields: [SelectableMetricField]
+    let trackingStyle: ExerciseTrackingStyle
+    let metricFields: [SelectableMetricField]
     let distanceLabel: String
     let isDraft: Bool
 
@@ -910,9 +1245,11 @@ private struct MetricSessionSection: View {
     @Binding var averageRPM: Int
     @Binding var distance: Double
 
+    let onOpenRoutes: (() -> Void)?
+
     var body: some View {
-        Section("Metrics") {
-            if selectableMetricFields.contains(.durationMinutes) {
+        Section(sectionTitle) {
+            if metricFields.contains(.durationMinutes) {
                 MetricStepperRow(
                     title: "Duration \(durationMinutes)m",
                     value: $durationMinutes,
@@ -920,7 +1257,7 @@ private struct MetricSessionSection: View {
                     isDraft: isDraft
                 )
             }
-            if selectableMetricFields.contains(.difficultyLevel) {
+            if metricFields.contains(.difficultyLevel) {
                 MetricStepperRow(
                     title: "Difficulty \(difficultyLevel)",
                     value: $difficultyLevel,
@@ -928,7 +1265,7 @@ private struct MetricSessionSection: View {
                     isDraft: isDraft
                 )
             }
-            if selectableMetricFields.contains(.averageRPM) {
+            if metricFields.contains(.averageRPM) {
                 MetricStepperRow(
                     title: "Average RPM \(averageRPM)",
                     value: $averageRPM,
@@ -936,11 +1273,26 @@ private struct MetricSessionSection: View {
                     isDraft: isDraft
                 )
             }
-            if selectableMetricFields.contains(.distance) {
-                TextField("Distance (\(distanceLabel))", value: $distance, format: .number)
-                    .foregroundStyle(isDraft ? .secondary : .primary)
-                    .keyboardType(.decimalPad)
+            if metricFields.contains(.distance) {
+                HStack {
+                    TextField("Distance (\(distanceLabel))", value: $distance, format: .number)
+                        .foregroundStyle(isDraft ? .secondary : .primary)
+                        .keyboardType(.decimalPad)
+                    if let onOpenRoutes {
+                        Button("Routes", action: onOpenRoutes)
+                            .buttonStyle(.bordered)
+                    }
+                }
             }
+        }
+    }
+
+    private var sectionTitle: String {
+        switch trackingStyle {
+        case .stationaryBike, .normalBike, .walk:
+            return trackingStyle.displayName
+        default:
+            return "Metrics"
         }
     }
 }
@@ -955,6 +1307,116 @@ private struct MetricStepperRow: View {
         Stepper(value: $value, in: range) {
             Text(title)
                 .foregroundStyle(isDraft ? .secondary : .primary)
+        }
+    }
+}
+
+private struct RoutePickerView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let routes: [FitnessRoute]
+    let distanceUnit: DistanceUnit
+    let onSelect: (FitnessRoute) -> Void
+    let onCreateNew: () -> Void
+
+    var body: some View {
+        List {
+            Section("Routes") {
+                if routes.isEmpty {
+                    Text("No saved \(distanceUnit.displayName) routes yet.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(routes) { route in
+                        Button {
+                            onSelect(route)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(route.name)
+                                    Text("\(distanceText(route.distance)) \(route.distanceUnit.displayName)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Button("+ New Route") {
+                    onCreateNew()
+                }
+            }
+        }
+        .navigationTitle("Routes")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") {
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private func distanceText(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+
+        return String(format: "%.1f", value)
+    }
+}
+
+private struct NewRouteFormView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let distanceUnit: DistanceUnit
+    let onSave: (FitnessRoute) -> Void
+
+    @State private var name: String = ""
+    @State private var distance: Double
+
+    init(
+        distanceUnit: DistanceUnit,
+        initialDistance: Double,
+        onSave: @escaping (FitnessRoute) -> Void
+    ) {
+        self.distanceUnit = distanceUnit
+        self.onSave = onSave
+        _distance = State(initialValue: max(0, initialDistance))
+    }
+
+    var body: some View {
+        Form {
+            Section("Route") {
+                TextField("Name", text: $name)
+                TextField("Distance (\(distanceUnit.displayName))", value: $distance, format: .number)
+                    .keyboardType(.decimalPad)
+            }
+        }
+        .navigationTitle("New Route")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    guard let route = FitnessRoute(
+                        newName: name,
+                        distance: distance,
+                        distanceUnit: distanceUnit
+                    ) else {
+                        return
+                    }
+
+                    onSave(route)
+                }
+            }
         }
     }
 }

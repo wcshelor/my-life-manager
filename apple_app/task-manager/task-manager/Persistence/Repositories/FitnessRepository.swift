@@ -15,4 +15,9 @@ protocol FitnessRepository {
     func exerciseSession(withID id: UUID) throws -> ExerciseSession?
     func saveExerciseSession(_ session: ExerciseSession, replacingExerciseSessionWithID originalID: UUID?) throws
     func deleteExerciseSession(withID id: UUID) throws
+
+    func fetchRoutes() throws -> [FitnessRoute]
+    func route(withID id: UUID) throws -> FitnessRoute?
+    func saveRoute(_ route: FitnessRoute, replacingRouteWithID originalID: UUID?) throws
+    func deleteRoute(withID id: UUID) throws
 }

@@ -102,6 +102,45 @@ final class SwiftDataFitnessRepository: FitnessRepository {
         try modelContext.save()
     }
 
+    func fetchRoutes() throws -> [FitnessRoute] {
+        try modelContext.fetch(FetchDescriptor<FitnessRouteRecord>())
+            .map(\.route)
+            .sorted { leftRoute, rightRoute in
+                let comparison = leftRoute.name.localizedCaseInsensitiveCompare(rightRoute.name)
+                if comparison != .orderedSame {
+                    return comparison == .orderedAscending
+                }
+
+                return leftRoute.id.uuidString < rightRoute.id.uuidString
+            }
+    }
+
+    func route(withID id: UUID) throws -> FitnessRoute? {
+        try fetchRouteRecord(withID: id)?.route
+    }
+
+    func saveRoute(_ route: FitnessRoute, replacingRouteWithID originalID: UUID?) throws {
+        let record = try fetchRouteRecord(withID: originalID ?? route.id)
+            ?? fetchRouteRecord(withID: route.id)
+
+        if let record {
+            record.update(from: route)
+        } else {
+            modelContext.insert(FitnessRouteRecord(route: route))
+        }
+
+        try modelContext.save()
+    }
+
+    func deleteRoute(withID id: UUID) throws {
+        guard let record = try fetchRouteRecord(withID: id) else {
+            return
+        }
+
+        modelContext.delete(record)
+        try modelContext.save()
+    }
+
     private func fetchExerciseRecord(withID id: UUID) throws -> FitnessExerciseRecord? {
         try modelContext.fetch(FetchDescriptor<FitnessExerciseRecord>()).first { $0.id == id }
     }
@@ -112,5 +151,9 @@ final class SwiftDataFitnessRepository: FitnessRepository {
 
     private func fetchExerciseSessionRecord(withID id: UUID) throws -> ExerciseSessionRecord? {
         try modelContext.fetch(FetchDescriptor<ExerciseSessionRecord>()).first { $0.id == id }
+    }
+
+    private func fetchRouteRecord(withID id: UUID) throws -> FitnessRouteRecord? {
+        try modelContext.fetch(FetchDescriptor<FitnessRouteRecord>()).first { $0.id == id }
     }
 }

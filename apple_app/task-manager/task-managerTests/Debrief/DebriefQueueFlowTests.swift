@@ -46,6 +46,28 @@ struct DebriefQueueFlowTests {
         #expect(viewModel.draft.detailedResponses.first?.response == "Ship review notes")
     }
 
+    @Test func draftStartsWithInferredTemplateFromCandidate() async {
+        let harness = DebriefQueueHarness(
+            pendingCandidates: [
+                makeCandidate(
+                    idSuffix: "1",
+                    title: "Weekly sync",
+                    calendarTitle: "Team Meeting",
+                    suggestedTemplate: .meeting
+                )
+            ]
+        )
+        let viewModel = DebriefQueueViewModel(
+            loadSnapshot: { harness.snapshot() },
+            persistCurrent: harness.persistCurrent(candidate:draft:action:existing:)
+        )
+
+        await viewModel.load()
+
+        #expect(viewModel.draft.templateKind == .meeting)
+        #expect(viewModel.draft.templateDefinition.kind == .meeting)
+    }
+
     @Test func completeAdvancesToTheNextPendingDebrief() async {
         let harness = DebriefQueueHarness(
             pendingCandidates: [
@@ -89,7 +111,12 @@ struct DebriefQueueFlowTests {
         #expect(viewModel.canFinishCurrent == false)
     }
 
-    private func makeCandidate(idSuffix: String, title: String) -> CalendarDebriefCandidate {
+    private func makeCandidate(
+        idSuffix: String,
+        title: String,
+        calendarTitle: String = "Work",
+        suggestedTemplate: DebriefTemplateKind = .workBlock
+    ) -> CalendarDebriefCandidate {
         let start = Date(timeIntervalSince1970: 10_000)
         let end = start.addingTimeInterval(1_800)
         return CalendarDebriefCandidate(
@@ -99,11 +126,11 @@ struct DebriefQueueFlowTests {
             eventKey: "event-key-\(idSuffix)",
             eventIdentifier: "event-\(idSuffix)",
             calendarIdentifier: "calendar-\(idSuffix)",
-            calendarTitle: "Work",
+            calendarTitle: calendarTitle,
             title: title,
             start: start,
             end: end,
-            suggestedTemplate: .workBlock,
+            suggestedTemplate: suggestedTemplate,
             existingRecordID: nil
         )
     }

@@ -35,7 +35,7 @@ Current automated confidence covers:
 - Shopping models, SwiftData repository round trips, view-model behavior, and inbox conversion
 - Debrief model validation, queue filtering, queue-review composer state, and SwiftData round trips
 - work-in-progress Health model calculations, nutrition catalog search/custom-food persistence, SwiftData repository round trips, Health view-model summaries, and meal debrief reminder timing
-- Fitness model validation, SwiftData repository round trips, draft-session seeding, Fitness view-model state, and Home Fitness summaries
+- Fitness model validation, SwiftData repository and route round trips, draft-session seeding, cardio preset logging, session-note handling, Fitness view-model state, and Home Fitness summaries
 - Music Practice model validation, SwiftData repository round trips, view-model behavior, and Home summaries
 - People Memory model validation, SwiftData repository round trips, view-model behavior, and Home summaries
 - Vices model validation, SwiftData repository round trips, undo behavior, vice session grouping, and vice-session Debrief generation
@@ -76,13 +76,14 @@ Use the baseline battery above, then add the narrowest matching targeted checks 
 - update or inspect `apple_app/task-manager/task-managerTests/Vices/VicesViewModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Vices/ViceModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Vices/SwiftDataViceRepositoryTests.swift`
-- manually verify vice undo, active-session summaries, and Debrief handoff UI only when those surfaces changed
+- manually verify vice undo, active-session summaries, card-level goal creation/editing, goal progress-bar color changes, and Debrief handoff UI only when those surfaces changed
 
 ### Fitness
 
 - update or inspect `apple_app/task-manager/task-managerTests/Fitness/FitnessModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Fitness/FitnessViewModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Fitness/SwiftDataFitnessRepositoryTests.swift`
+- cover route persistence/filtering, cardio preset fields, partial reps, and session notes when those surfaces change
 - run `bash scripts/check_swift_typecheck_complexity.sh` when touching large Fitness SwiftUI bodies, sheets, or navigation flows
 
 ### Planner / Calendar / EventKit
@@ -257,14 +258,17 @@ Validate:
 Validate:
 
 - open Fitness from Home
-- create Push Day, Pull Day, and Leg Day workout days
-- create one strength exercise and one bike-style metric exercise
-- add existing exercises to a workout day
-- log sessions from both the exercise list and workout day flow
+- create Push Day, Pull Day, and Leg Day workouts
+- create one strength exercise, one named cardio preset exercise, and one custom-metric exercise
+- add existing exercises to a workout
+- log sessions from both the exercise list and workout flow
+- edit a saved strength session from history
+- use the partial-rep control and weight wheel
+- select an existing route from a distance field and create a new route from the filtered picker
 - confirm draft quick-log values seed from the most recent session for that exercise
 - confirm last-session references refresh immediately
 - confirm logged-today state appears after same-day logging
-- confirm Recent, A-Z, and Tag sorting
+- confirm Recent, A-Z, and Tag sorting, plus the independent `Add Existing` sort inside workout editing
 - confirm the older Health workout log still works unchanged
 
 ### Music Practice
@@ -316,7 +320,10 @@ Validate:
 Validate:
 
 - open Finance from Home
-- add one income and one expense
+- add one income and one expense from the plus/minus buttons
+- confirm amount entry does not save until Choose Category -> category tap
+- confirm the date picker value is preserved into the saved transaction
+- confirm creating a category from the category picker immediately saves and dismisses back to Finance
 - confirm the monthly balance updates
 - confirm category summaries and transaction history refresh
 - confirm delete flows still update the dashboard totals

@@ -31,6 +31,24 @@ struct SwiftDataFinanceRepositoryTests {
         #expect(try repository.fetchCategories(includeArchived: false, kind: nil).count == FinanceCategory.defaultSeedCategories.count)
     }
 
+    @Test @MainActor func repositoryPersistsTransactionWithoutTitle() throws {
+        let repository = try makeRepository()
+        try repository.seedDefaultCategoriesIfNeeded()
+        let category = try #require(repository.fetchCategories(includeArchived: false, kind: .income).first)
+        let transaction = FinanceTransaction(
+            name: nil,
+            amount: 100,
+            kind: .income,
+            date: Date(timeIntervalSince1970: 2_000),
+            category: category,
+            note: "Bonus"
+        )
+
+        try repository.saveTransaction(transaction, replacingTransactionWithID: nil)
+
+        #expect(try repository.transaction(withID: transaction.id)?.name == nil)
+    }
+
     @Test @MainActor func repositoryFiltersTransactionsByMonth() throws {
         let repository = try makeRepository()
         try repository.seedDefaultCategoriesIfNeeded()

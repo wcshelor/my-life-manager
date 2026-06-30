@@ -19,4 +19,8 @@ protocol ViceRepository {
     func fetchViceSessions() throws -> [ViceSession]
     func saveViceSession(_ session: ViceSession) throws
     func deleteViceSession(withID id: UUID) throws
+
+    func fetchViceGoals(includeArchived: Bool) throws -> [ViceGoal]
+    func saveViceGoal(_ goal: ViceGoal, replacingGoalWithID originalID: UUID?) throws
+    func archiveViceGoal(withID id: UUID, archivedAt: Date) throws
 }

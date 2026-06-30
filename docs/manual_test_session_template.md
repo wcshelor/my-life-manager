@@ -70,15 +70,18 @@
 ## Fitness
 
 - [ ] Opened Fitness from Home
-- [ ] Created Push Day, Pull Day, and Leg Day
+- [ ] Created Push Day, Pull Day, and Leg Day workouts
 - [ ] Created a strength exercise
-- [ ] Created a bike-style metric exercise
-- [ ] Added existing exercises to a workout day
+- [ ] Created a named cardio preset exercise and a custom-metric exercise
+- [ ] Added existing exercises to a workout
 - [ ] Logged at least one session from an exercise detail screen
-- [ ] Logged at least one session from a workout day flow
+- [ ] Logged at least one session from a workout flow
+- [ ] Edited a saved strength session from history
+- [ ] Used the partial-rep control and weight wheel
+- [ ] Selected an existing route from a distance field and created a new route from the picker
 - [ ] Confirmed last-session references update immediately
 - [ ] Confirmed logged-today badges appear
-- [ ] Checked Recent, A-Z, and Tag sorting
+- [ ] Checked Recent, A-Z, and Tag sorting, plus the workout editor's `Add Existing` sort
 - [ ] Confirmed the older Health workout log still behaves unchanged
 
 ## Music Practice

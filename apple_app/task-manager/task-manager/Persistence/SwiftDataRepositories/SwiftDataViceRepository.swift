@@ -112,6 +112,44 @@ final class SwiftDataViceRepository: ViceRepository {
         try modelContext.save()
     }
 
+    func fetchViceGoals(includeArchived: Bool) throws -> [ViceGoal] {
+        let allGoals = try modelContext.fetch(FetchDescriptor<ViceGoalRecord>())
+            .map(\.goal)
+            .sortedForViceGoals()
+
+        if includeArchived {
+            return allGoals
+        }
+
+        return allGoals.filter { $0.isArchived == false }
+    }
+
+    func saveViceGoal(_ goal: ViceGoal, replacingGoalWithID originalID: UUID?) throws {
+        let record =
+            try fetchViceGoalRecord(withID: originalID ?? goal.id)
+            ?? fetchViceGoalRecord(withID: goal.id)
+
+        if let record {
+            record.update(from: goal)
+        } else {
+            modelContext.insert(ViceGoalRecord(goal: goal))
+        }
+
+        try modelContext.save()
+    }
+
+    func archiveViceGoal(withID id: UUID, archivedAt: Date) throws {
+        guard let record = try fetchViceGoalRecord(withID: id) else {
+            return
+        }
+
+        var updatedGoal = record.goal
+        updatedGoal.archivedAt = archivedAt
+        updatedGoal.updatedAt = archivedAt
+        record.update(from: updatedGoal)
+        try modelContext.save()
+    }
+
     private func fetchViceRecord(withID id: UUID) throws -> ViceRecord? {
         try modelContext.fetch(FetchDescriptor<ViceRecord>())
             .first { $0.id == id }
@@ -124,6 +162,11 @@ final class SwiftDataViceRepository: ViceRepository {
 
     private func fetchViceSessionRecord(withID id: UUID) throws -> ViceSessionRecord? {
         try modelContext.fetch(FetchDescriptor<ViceSessionRecord>())
+            .first { $0.id == id }
+    }
+
+    private func fetchViceGoalRecord(withID id: UUID) throws -> ViceGoalRecord? {
+        try modelContext.fetch(FetchDescriptor<ViceGoalRecord>())
             .first { $0.id == id }
     }
 }
@@ -153,6 +196,22 @@ extension Array where Element == ViceLog {
             }
 
             return leftLog.id.uuidString < rightLog.id.uuidString
+        }
+    }
+}
+
+extension Array where Element == ViceGoal {
+    func sortedForViceGoals() -> [ViceGoal] {
+        sorted { lhs, rhs in
+            if lhs.isArchived != rhs.isArchived {
+                return lhs.isArchived == false
+            }
+
+            if lhs.deadline != rhs.deadline {
+                return lhs.deadline < rhs.deadline
+            }
+
+            return lhs.id.uuidString < rhs.id.uuidString
         }
     }
 }

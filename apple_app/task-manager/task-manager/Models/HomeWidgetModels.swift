@@ -1265,7 +1265,7 @@ nonisolated struct HomeWidgetRegistry: Equatable, Sendable {
                     WidgetQuickAction(id: "openFitness", title: "Open Fitness", systemImage: "dumbbell", role: nil),
                     WidgetQuickAction(id: "logWorkout", title: "Log Workout", systemImage: "plus.circle", role: nil),
                     WidgetQuickAction(id: "recentWorkouts", title: "Recent", systemImage: "clock", role: nil),
-                    WidgetQuickAction(id: "workoutDays", title: "Workout Days", systemImage: "calendar", role: nil),
+                    WidgetQuickAction(id: "workoutDays", title: "Workouts", systemImage: "calendar", role: nil),
                 ]
             ),
             HomeWidgetDefinition(

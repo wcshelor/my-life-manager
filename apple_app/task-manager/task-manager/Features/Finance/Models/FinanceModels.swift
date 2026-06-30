@@ -63,7 +63,7 @@ nonisolated struct FinanceCategory: Identifiable, Equatable, Hashable, Sendable 
 
 nonisolated struct FinanceTransaction: Identifiable, Equatable, Sendable {
     let id: UUID
-    var name: String
+    var name: String?
     var amount: Decimal
     var kind: TransactionKind
     var date: Date
@@ -74,7 +74,7 @@ nonisolated struct FinanceTransaction: Identifiable, Equatable, Sendable {
 
     init(
         id: UUID = UUID(),
-        name: String,
+        name: String? = nil,
         amount: Decimal,
         kind: TransactionKind,
         date: Date = .now,
@@ -84,7 +84,7 @@ nonisolated struct FinanceTransaction: Identifiable, Equatable, Sendable {
         updatedAt: Date? = nil
     ) {
         self.id = id
-        self.name = Self.cleanedName(from: name) ?? name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.name = name.flatMap(Self.cleanedName(from:))
         self.amount = Self.cleanedAmount(amount)
         self.kind = kind
         self.date = date
@@ -110,18 +110,23 @@ nonisolated struct FinanceTransaction: Identifiable, Equatable, Sendable {
 
 extension FinanceCategory {
     static let defaultSeedCategories: [(name: String, kind: TransactionKind)] = [
-        ("Food", .expense),
-        ("Groceries", .expense),
-        ("Transport", .expense),
-        ("Housing", .expense),
+        ("Bills", .expense),
+        ("Car", .expense),
         ("Clothes", .expense),
+        ("Communication", .expense),
+        ("Eating Out", .expense),
         ("Entertainment", .expense),
-        ("Health", .expense),
+        ("Food", .expense),
         ("Gifts", .expense),
-        ("Subscriptions", .expense),
-        ("Other", .expense),
+        ("Health", .expense),
+        ("House", .expense),
+        ("Pets", .expense),
+        ("Sports", .expense),
+        ("Taxi", .expense),
+        ("Toiletry", .expense),
+        ("Transport", .expense),
         ("Salary", .income),
-        ("Refund", .income),
-        ("Transfer", .income),
+        ("Gift", .income),
+        ("Other", .income),
     ]
 }

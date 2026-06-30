@@ -121,12 +121,24 @@ struct DebriefQueueServiceTests {
         #expect(candidates.first?.existingRecordID == pendingDebrief.id)
     }
 
-    @Test func templateSuggestionsUseKeywordHints() {
-        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Weekly meeting") == .meeting)
-        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Dinner with Anna") == .social)
-        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Deep work coding") == .workBlock)
-        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Piano scales") == .pianoPractice)
-        #expect(CalendarDebriefRecord.suggestedTemplate(for: "Untitled Event") == .generic)
+    @Test func templateSuggestionsUseCalendarTitleHintsBeforeEventTitleHints() {
+        let service = DebriefTemplateInferenceService()
+
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, calendarTitle: "Work", title: "Weekly sync") == .workBlock)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, calendarTitle: "Team Meeting", title: "Focus block") == .meeting)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, calendarTitle: "Band Practice", title: "Admin") == .jamSession)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, calendarTitle: "Personal", title: "Dinner with Anna") == .social)
+    }
+
+    @Test func templateSuggestionsUseKeywordHintsAndFallbackToGeneric() {
+        let service = DebriefTemplateInferenceService()
+
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Weekly meeting") == .meeting)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Dinner with Anna") == .social)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Deep work coding") == .workBlock)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Piano scales") == .pianoPractice)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Untitled Event") == .generic)
+        #expect(service.inferredTemplate(sourceType: .custom, title: "Untitled Event") == .generic)
     }
 
     @Test func templateInferenceUsesSourceTypeDefaults() {
@@ -135,7 +147,8 @@ struct DebriefQueueServiceTests {
         #expect(service.inferredTemplate(sourceType: .viceSession) == .viceSession)
         #expect(service.inferredTemplate(sourceType: .musicPracticeSession) == .pianoPractice)
         #expect(service.inferredTemplate(sourceType: .meeting) == .meeting)
-        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Weekly meeting") == .workBlock)
+        #expect(service.inferredTemplate(sourceType: .calendarBlock, title: "Weekly meeting") == .meeting)
+        #expect(service.inferredTemplate(sourceType: .scheduledBlock, title: "Deep work") == .workBlock)
         #expect(service.inferredTemplate(sourceType: .custom, title: "Weekly meeting") == .meeting)
     }
 }

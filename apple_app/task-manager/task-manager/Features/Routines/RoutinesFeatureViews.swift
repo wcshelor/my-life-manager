@@ -69,7 +69,7 @@ struct RoutineModuleView: View {
                     ContentUnavailableView(
                         "No Routines Yet",
                         systemImage: "checklist.checked",
-                        description: Text("Create a routine with daily or selected-weekday timing.")
+                        description: Text("Create a routine that is always available or tied to specific weekdays.")
                     )
                 } else {
                     ForEach(viewModel.routines) { routine in
@@ -173,7 +173,7 @@ struct RoutineModuleView: View {
     private func routineSummary(for routine: Routine) -> String {
         let stepCount = routine.orderedItems.count
         let scheduleText = routine.activeWeekdays.isEmpty
-            ? "Daily"
+            ? "Not day-based"
             : routine.activeWeekdays.map(\.shortName).joined(separator: ", ")
         let linkCount = routine.stepLinks.count
         return "\(stepCount) step\(stepCount == 1 ? "" : "s") · \(linkCount) link\(linkCount == 1 ? "" : "s") · \(scheduleText)"
@@ -216,8 +216,8 @@ struct RoutineEditorView: View {
                 TextField("Notes", text: $notes, axis: .vertical)
             }
 
-            Section("Days") {
-                Toggle("Daily", isOn: dailyBinding)
+            Section("Schedule") {
+                Toggle("Tie to specific weekdays", isOn: scheduledByWeekdayBinding)
 
                 if selectedWeekdays.isEmpty == false {
                     ForEach(RoutineWeekday.allCases, id: \.self) { weekday in
@@ -275,11 +275,11 @@ struct RoutineEditorView: View {
         }
     }
 
-    private var dailyBinding: Binding<Bool> {
+    private var scheduledByWeekdayBinding: Binding<Bool> {
         Binding(
-            get: { selectedWeekdays.isEmpty },
-            set: { isDaily in
-                selectedWeekdays = isDaily ? [] : Set(RoutineWeekday.allCases)
+            get: { selectedWeekdays.isEmpty == false },
+            set: { isScheduledByWeekday in
+                selectedWeekdays = isScheduledByWeekday ? Set(RoutineWeekday.allCases) : []
             }
         )
     }
@@ -576,7 +576,7 @@ struct RoutineSessionView: View {
         ContentUnavailableView(
             "Routine Not Available",
             systemImage: "exclamationmark.triangle",
-            description: Text("This routine is no longer active today.")
+            description: Text("This routine is not active for the current weekday.")
         )
     }
 

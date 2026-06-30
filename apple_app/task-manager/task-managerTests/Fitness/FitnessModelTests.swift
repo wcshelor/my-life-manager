@@ -108,6 +108,37 @@ struct FitnessModelTests {
         #expect(invalidMetricSession.isValid(for: bikeExercise) == false)
     }
 
+    @Test func presetCardioExercisesExposeExpectedFieldsAndDistanceUnits() {
+        let stationaryBike = FitnessExercise(
+            name: "Stationary Bike",
+            tag: .cardio,
+            trackingStyle: .stationaryBike,
+            distanceUnit: .miles
+        )
+        let walk = FitnessExercise(
+            name: "Walk",
+            tag: .cardio,
+            trackingStyle: .walk,
+            distanceUnit: .kilometers
+        )
+
+        #expect(stationaryBike.metricFields == [.durationMinutes, .difficultyLevel, .averageRPM, .distance])
+        #expect(stationaryBike.selectableMetricFields.isEmpty)
+        #expect(stationaryBike.distanceUnit == .miles)
+        #expect(walk.metricFields == [.durationMinutes, .distance])
+    }
+
+    @Test func exerciseSessionCleansNotesAndFormatsPartialReps() {
+        let session = ExerciseSession(
+            exerciseID: UUID(),
+            strengthSets: [StrengthSet(reps: 5.5, weight: 185)],
+            notes: "  Felt good  "
+        )
+
+        #expect(session.notes == "Felt good")
+        #expect(session.summaryText.contains("5.5x185"))
+    }
+
     @Test func draftCopySeedsFromPriorSessionForMatchingExerciseShape() {
         let strengthExercise = FitnessExercise(
             name: "Bench",
@@ -150,5 +181,15 @@ struct FitnessModelTests {
         #expect(bikeDraft.difficultyLevel == 7)
         #expect(bikeDraft.distance == 5.5)
         #expect(bikeDraft.averageRPM == nil)
+    }
+
+    @Test func routesRequireNameAndPositiveDistance() {
+        #expect(FitnessRoute(newName: "  ", distance: 3.1, distanceUnit: .miles) == nil)
+        #expect(FitnessRoute(newName: "River Loop", distance: 0, distanceUnit: .miles) == nil)
+
+        let route = FitnessRoute(newName: "  River Loop  ", distance: 3.1, distanceUnit: .miles)
+
+        #expect(route?.name == "River Loop")
+        #expect(route?.distanceUnit == .miles)
     }
 }

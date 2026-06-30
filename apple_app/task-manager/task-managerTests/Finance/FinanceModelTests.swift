@@ -19,6 +19,18 @@ struct FinanceModelTests {
         #expect(transaction.updatedAt == createdAt)
     }
 
+    @Test func transactionAllowsMissingTitle() {
+        let transaction = FinanceTransaction(
+            name: "   ",
+            amount: 20,
+            kind: .expense,
+            note: "  Coffee  "
+        )
+
+        #expect(transaction.name == nil)
+        #expect(transaction.note == "Coffee")
+    }
+
     @Test func categoryCleansTextAndDefaultsSortOrder() {
         let category = FinanceCategory(name: "  Food  ", colorHex: "  #FF0000  ", sortOrder: -1)
 

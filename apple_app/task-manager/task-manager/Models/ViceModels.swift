@@ -118,6 +118,94 @@ nonisolated struct ViceLog: Identifiable, Equatable, Hashable, Sendable {
     }
 }
 
+nonisolated struct ViceGoal: Identifiable, Equatable, Hashable, Sendable {
+    let id: UUID
+    let viceID: UUID
+    var maxOccurrences: Int
+    var startDate: Date
+    var deadline: Date
+    let createdAt: Date
+    var updatedAt: Date
+    var archivedAt: Date?
+
+    init(
+        id: UUID = UUID(),
+        viceID: UUID,
+        maxOccurrences: Int,
+        startDate: Date,
+        deadline: Date,
+        createdAt: Date = .now,
+        updatedAt: Date? = nil,
+        archivedAt: Date? = nil
+    ) {
+        self.id = id
+        self.viceID = viceID
+        self.maxOccurrences = Swift.max(1, maxOccurrences)
+        self.startDate = startDate
+        self.deadline = Swift.max(startDate, deadline)
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt ?? createdAt
+        self.archivedAt = archivedAt
+    }
+
+    var isArchived: Bool {
+        archivedAt != nil
+    }
+
+    func isActive(at now: Date) -> Bool {
+        isArchived == false && now <= deadline
+    }
+
+    func contains(_ date: Date) -> Bool {
+        date >= startDate && date <= deadline
+    }
+
+    func progress(count: Int) -> Double {
+        let safeCount = Swift.max(0, count)
+        return Double(safeCount) / Double(Swift.max(1, maxOccurrences))
+    }
+
+    func status(forCount count: Int) -> ViceGoalStatus {
+        let ratio = progress(count: count)
+        if ratio >= 1 {
+            return .exceeded
+        }
+
+        if ratio >= 0.7 {
+            return .warning
+        }
+
+        return .onTrack
+    }
+}
+
+nonisolated enum ViceGoalStatus: String, Equatable, Hashable, Sendable {
+    case onTrack
+    case warning
+    case exceeded
+}
+
+nonisolated struct ViceGoalProgress: Equatable, Hashable, Sendable {
+    let goal: ViceGoal
+    let count: Int
+
+    var ratio: Double {
+        goal.progress(count: count)
+    }
+
+    var clampedRatio: Double {
+        min(max(ratio, 0), 1)
+    }
+
+    var status: ViceGoalStatus {
+        goal.status(forCount: count)
+    }
+
+    func summaryText() -> String {
+        "\(count) / \(goal.maxOccurrences) until \(goal.deadline.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+}
+
 nonisolated struct ViceSessionSummary: Equatable, Sendable {
     let session: ViceSession
     let viceName: String

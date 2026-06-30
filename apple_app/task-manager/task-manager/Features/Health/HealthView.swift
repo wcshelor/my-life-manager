@@ -286,7 +286,7 @@ struct HealthView: View {
                         TrendMetricRowData(
                             label: "Exercise library",
                             value: "\(fitnessViewModel.exercises.count)",
-                            detail: "\(fitnessViewModel.workoutTemplates.count) workout day\(fitnessViewModel.workoutTemplates.count == 1 ? "" : "s")"
+                            detail: "\(fitnessViewModel.workoutTemplates.count) workout\(fitnessViewModel.workoutTemplates.count == 1 ? "" : "s")"
                         ),
                         TrendMetricRowData(
                             label: "Recent",

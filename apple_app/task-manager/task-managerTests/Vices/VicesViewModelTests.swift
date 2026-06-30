@@ -191,6 +191,131 @@ struct VicesViewModelTests {
         #expect(repository.sessions.count == 1)
         #expect(repository.sessions.first?.hitCount == 1)
     }
+
+    @Test func saveGoalCreatesProgressForViceCard() {
+        let now = Date(timeIntervalSince1970: 50_000)
+        let vice = Vice(name: "Dab Pen", unitLabel: "Hits")
+        let repository = InMemoryViceRepository(vices: [vice], logs: [])
+        let debriefRepository = InMemoryDebriefRepository()
+        let viewModel = VicesViewModel(
+            viceRepository: repository,
+            debriefRepository: debriefRepository,
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        let saved = viewModel.saveGoal(
+            viceID: vice.id,
+            maxOccurrences: 5,
+            deadline: now.addingTimeInterval(86_400)
+        )
+
+        #expect(saved)
+        #expect(repository.goals.count == 1)
+        #expect(viewModel.summaries.first?.goalProgress?.count == 0)
+        #expect(viewModel.summaries.first?.goalProgress?.goal.maxOccurrences == 5)
+    }
+
+    @Test func goalProgressOnlyCountsLogsInsideGoalWindow() {
+        let now = Date(timeIntervalSince1970: 60_000)
+        let start = now.addingTimeInterval(-3_600)
+        let deadline = now.addingTimeInterval(3_600)
+        let vice = Vice(name: "Alcohol", unitLabel: "Drinks")
+        let goal = ViceGoal(
+            viceID: vice.id,
+            maxOccurrences: 4,
+            startDate: start,
+            deadline: deadline,
+            createdAt: start
+        )
+        let logs = [
+            ViceLog(viceID: vice.id, timestamp: start.addingTimeInterval(-10), amount: 2),
+            ViceLog(viceID: vice.id, timestamp: start.addingTimeInterval(300), amount: 1),
+            ViceLog(viceID: vice.id, timestamp: now, amount: 2),
+            ViceLog(viceID: vice.id, timestamp: deadline.addingTimeInterval(10), amount: 3)
+        ]
+        let repository = InMemoryViceRepository(vices: [vice], logs: logs, goals: [goal])
+        let debriefRepository = InMemoryDebriefRepository()
+        let viewModel = VicesViewModel(
+            viceRepository: repository,
+            debriefRepository: debriefRepository,
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+
+        #expect(viewModel.summaries.first?.goalProgress?.count == 3)
+    }
+
+    @Test func goalStatusTransitionsFromGreenToYellowToRed() {
+        let now = Date(timeIntervalSince1970: 70_000)
+        let goal = ViceGoal(
+            viceID: UUID(),
+            maxOccurrences: 10,
+            startDate: now,
+            deadline: now.addingTimeInterval(3_600)
+        )
+
+        #expect(goal.status(forCount: 2) == .onTrack)
+        #expect(goal.status(forCount: 7) == .warning)
+        #expect(goal.status(forCount: 10) == .exceeded)
+    }
+
+    @Test func savingNewGoalArchivesPreviousActiveGoalForVice() {
+        let now = Date(timeIntervalSince1970: 80_000)
+        let vice = Vice(name: "Social Media", unitLabel: "Sessions")
+        let existingGoal = ViceGoal(
+            viceID: vice.id,
+            maxOccurrences: 2,
+            startDate: now.addingTimeInterval(-600),
+            deadline: now.addingTimeInterval(3_600),
+            createdAt: now.addingTimeInterval(-600)
+        )
+        let repository = InMemoryViceRepository(vices: [vice], logs: [], goals: [existingGoal])
+        let debriefRepository = InMemoryDebriefRepository()
+        let viewModel = VicesViewModel(
+            viceRepository: repository,
+            debriefRepository: debriefRepository,
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        let saved = viewModel.saveGoal(
+            viceID: vice.id,
+            maxOccurrences: 5,
+            deadline: now.addingTimeInterval(7_200)
+        )
+
+        #expect(saved)
+        #expect(repository.goals.count == 2)
+        #expect(repository.goals.filter { $0.isArchived == false }.count == 1)
+        #expect(repository.goals.first(where: { $0.id == existingGoal.id })?.isArchived == true)
+        #expect(viewModel.summaries.first?.goalProgress?.goal.maxOccurrences == 5)
+    }
+
+    @Test func expiredGoalIsArchivedOnLoad() {
+        let now = Date(timeIntervalSince1970: 90_000)
+        let vice = Vice(name: "Coffee", unitLabel: "Cups")
+        let expiredGoal = ViceGoal(
+            viceID: vice.id,
+            maxOccurrences: 3,
+            startDate: now.addingTimeInterval(-7_200),
+            deadline: now.addingTimeInterval(-60),
+            createdAt: now.addingTimeInterval(-7_200)
+        )
+        let repository = InMemoryViceRepository(vices: [vice], logs: [], goals: [expiredGoal])
+        let debriefRepository = InMemoryDebriefRepository()
+        let viewModel = VicesViewModel(
+            viceRepository: repository,
+            debriefRepository: debriefRepository,
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+
+        #expect(repository.goals.first?.isArchived == true)
+        #expect(viewModel.summaries.first?.goalProgress == nil)
+    }
 }
 
 @MainActor
@@ -198,11 +323,13 @@ private final class InMemoryViceRepository: ViceRepository {
     var vices: [Vice]
     var logs: [ViceLog]
     var sessions: [ViceSession]
+    var goals: [ViceGoal]
 
-    init(vices: [Vice], logs: [ViceLog], sessions: [ViceSession] = []) {
+    init(vices: [Vice], logs: [ViceLog], sessions: [ViceSession] = [], goals: [ViceGoal] = []) {
         self.vices = vices
         self.logs = logs
         self.sessions = sessions
+        self.goals = goals
     }
 
     func fetchVices(includeArchived: Bool) throws -> [Vice] {
@@ -270,6 +397,29 @@ private final class InMemoryViceRepository: ViceRepository {
 
     func deleteViceSession(withID id: UUID) throws {
         sessions.removeAll { $0.id == id }
+    }
+
+    func fetchViceGoals(includeArchived: Bool) throws -> [ViceGoal] {
+        let values = includeArchived ? goals : goals.filter { $0.isArchived == false }
+        return values.sortedForViceGoals()
+    }
+
+    func saveViceGoal(_ goal: ViceGoal, replacingGoalWithID originalID: UUID?) throws {
+        let targetID = originalID ?? goal.id
+        if let index = goals.firstIndex(where: { $0.id == targetID || $0.id == goal.id }) {
+            goals[index] = goal
+        } else {
+            goals.append(goal)
+        }
+    }
+
+    func archiveViceGoal(withID id: UUID, archivedAt: Date) throws {
+        guard let index = goals.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        goals[index].archivedAt = archivedAt
+        goals[index].updatedAt = archivedAt
     }
 }
 

@@ -51,11 +51,15 @@ struct FinanceTransactionListView: View {
         ForEach(transactions) { transaction in
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(transaction.name)
+                    Text(transaction.name ?? transaction.category?.name ?? transaction.kind.displayName)
                         .font(.body.weight(.semibold))
-                    Text(transaction.category?.name ?? "Uncategorized")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(transaction.category?.name ?? "Uncategorized")
+                        Text("•")
+                        Text(transaction.date.formatted(date: .abbreviated, time: .omitted))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 Spacer()

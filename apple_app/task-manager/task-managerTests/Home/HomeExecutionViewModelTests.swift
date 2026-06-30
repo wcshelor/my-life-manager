@@ -1343,15 +1343,18 @@ private final class FakeHomeFitnessRepository: FitnessRepository {
     var exercises: [FitnessExercise]
     var templates: [WorkoutTemplate]
     var sessions: [ExerciseSession]
+    var routes: [FitnessRoute]
 
     init(
         exercises: [FitnessExercise] = [],
         templates: [WorkoutTemplate] = [],
-        sessions: [ExerciseSession] = []
+        sessions: [ExerciseSession] = [],
+        routes: [FitnessRoute] = []
     ) {
         self.exercises = exercises
         self.templates = templates
         self.sessions = sessions
+        self.routes = routes
     }
 
     func fetchExercises() throws -> [FitnessExercise] {
@@ -1387,6 +1390,18 @@ private final class FakeHomeFitnessRepository: FitnessRepository {
     func saveExerciseSession(_ session: ExerciseSession, replacingExerciseSessionWithID originalID: UUID?) throws {}
 
     func deleteExerciseSession(withID id: UUID) throws {}
+
+    func fetchRoutes() throws -> [FitnessRoute] {
+        routes
+    }
+
+    func route(withID id: UUID) throws -> FitnessRoute? {
+        routes.first { $0.id == id }
+    }
+
+    func saveRoute(_ route: FitnessRoute, replacingRouteWithID originalID: UUID?) throws {}
+
+    func deleteRoute(withID id: UUID) throws {}
 }
 
 @MainActor

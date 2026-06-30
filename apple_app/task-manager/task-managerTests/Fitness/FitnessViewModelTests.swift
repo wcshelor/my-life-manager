@@ -86,6 +86,20 @@ struct FitnessViewModelTests {
         #expect(rows.last?.latestSession == nil)
     }
 
+    @Test func fitnessViewModelFiltersRoutesByDistanceUnit() {
+        let mileRoute = FitnessRoute(name: "River Loop", distance: 3.1, distanceUnit: .miles)
+        let kilometerRoute = FitnessRoute(name: "Park Loop", distance: 5, distanceUnit: .kilometers)
+        let viewModel = FitnessViewModel(
+            fitnessRepository: FakeFitnessRepository(routes: [mileRoute, kilometerRoute])
+        )
+
+        viewModel.load()
+
+        #expect(viewModel.routes(for: .miles) == [mileRoute])
+        #expect(viewModel.routes(for: .kilometers) == [kilometerRoute])
+        #expect(viewModel.routes(for: nil).isEmpty)
+    }
+
     @Test func fitnessViewModelRefreshesAfterSaveDeleteFlows() {
         let exercise = FitnessExercise(name: "Row", tag: .pull, trackingStyle: .strengthSets, weightUnit: .kilograms)
         let repository = FakeFitnessRepository(exercises: [exercise])
@@ -139,15 +153,18 @@ private final class FakeFitnessRepository: FitnessRepository {
     var exercises: [FitnessExercise]
     var templates: [WorkoutTemplate]
     var sessions: [ExerciseSession]
+    var routes: [FitnessRoute]
 
     init(
         exercises: [FitnessExercise] = [],
         templates: [WorkoutTemplate] = [],
-        sessions: [ExerciseSession] = []
+        sessions: [ExerciseSession] = [],
+        routes: [FitnessRoute] = []
     ) {
         self.exercises = exercises
         self.templates = templates
         self.sessions = sessions
+        self.routes = routes
     }
 
     func fetchExercises() throws -> [FitnessExercise] {
@@ -207,5 +224,26 @@ private final class FakeFitnessRepository: FitnessRepository {
 
     func deleteExerciseSession(withID id: UUID) throws {
         sessions.removeAll { $0.id == id }
+    }
+
+    func fetchRoutes() throws -> [FitnessRoute] {
+        routes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func route(withID id: UUID) throws -> FitnessRoute? {
+        routes.first { $0.id == id }
+    }
+
+    func saveRoute(_ route: FitnessRoute, replacingRouteWithID originalID: UUID?) throws {
+        let targetID = originalID ?? route.id
+        if let index = routes.firstIndex(where: { $0.id == targetID || $0.id == route.id }) {
+            routes[index] = route
+        } else {
+            routes.append(route)
+        }
+    }
+
+    func deleteRoute(withID id: UUID) throws {
+        routes.removeAll { $0.id == id }
     }
 }

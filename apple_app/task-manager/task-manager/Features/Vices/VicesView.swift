@@ -8,6 +8,9 @@ struct VicesView: View {
     @State private var draftUnitLabel = ""
     @State private var isShowingAddSheet = false
     @State private var editingVice: Vice?
+    @State private var editingGoal: ViceGoalEditorState?
+    @State private var draftGoalMaxOccurrences = 1
+    @State private var draftGoalDeadline = Date.now
 
     private let onChange: () -> Void
 
@@ -62,6 +65,15 @@ struct VicesView: View {
                                         onArchive: {
                                             viewModel.archiveVice(withID: summary.vice.id)
                                             onChange()
+                                        },
+                                        onEditGoal: {
+                                            let currentGoal = summary.goalProgress?.goal
+                                            editingGoal = ViceGoalEditorState(
+                                                vice: summary.vice,
+                                                goal: currentGoal
+                                            )
+                                            draftGoalMaxOccurrences = currentGoal?.maxOccurrences ?? max(1, summary.todayCount + 1)
+                                            draftGoalDeadline = currentGoal?.deadline ?? Calendar.current.date(byAdding: .day, value: 7, to: now) ?? now
                                         }
                                     )
                                 }
@@ -137,6 +149,11 @@ struct VicesView: View {
                     }
                 }
             }
+            .sheet(item: $editingGoal) { state in
+                NavigationStack {
+                    goalForm(for: state)
+                }
+            }
         }
     }
 
@@ -167,6 +184,50 @@ struct VicesView: View {
             }
         }
     }
+
+    private func goalForm(for state: ViceGoalEditorState) -> some View {
+        Form {
+            Section(state.goal == nil ? "Add Limit" : "Edit Limit") {
+                Stepper(value: $draftGoalMaxOccurrences, in: 1 ... 10_000) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Max occurrences")
+                        Text("\(draftGoalMaxOccurrences) \(state.vice.unitLabel.lowercased())")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                DatePicker(
+                    "Deadline",
+                    selection: $draftGoalDeadline,
+                    in: Date.now...,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+            }
+        }
+        .navigationTitle(state.vice.name)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    if viewModel.saveGoal(
+                        viceID: state.vice.id,
+                        maxOccurrences: draftGoalMaxOccurrences,
+                        deadline: draftGoalDeadline,
+                        replacingGoalWithID: state.goal?.id
+                    ) {
+                        editingGoal = nil
+                        onChange()
+                    }
+                }
+            }
+
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    editingGoal = nil
+                }
+            }
+        }
+    }
 }
 
 private struct ViceCard: View {
@@ -175,46 +236,68 @@ private struct ViceCard: View {
     let onTap: () -> Void
     let onEdit: () -> Void
     let onArchive: () -> Void
+    let onEditGoal: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text(summary.vice.name)
-                        .font(.headline)
-                    Spacer()
-                    Menu {
-                        Button("Edit", action: onEdit)
-                        Button("Archive", role: .destructive, action: onArchive)
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(summary.vice.name)
+                    .font(.headline)
+                Spacer()
+                Menu {
+                    Button("Edit", action: onEdit)
+                    Button("Archive", role: .destructive, action: onArchive)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
+                .buttonStyle(.plain)
+            }
 
-                HStack(alignment: .lastTextBaseline, spacing: 6) {
-                    Text("\(summary.todayCount)")
-                        .font(.title2.weight(.semibold))
-                    Text(summary.vice.unitLabel.lowercased())
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text(lastLogLabel)
-                    .font(.footnote)
+            HStack(alignment: .lastTextBaseline, spacing: 6) {
+                Text("\(summary.todayCount)")
+                    .font(.title2.weight(.semibold))
+                Text(summary.vice.unitLabel.lowercased())
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                if let recentGapSummary = summary.recentHistorySummaryText() {
-                    Text("Recent gaps: \(recentGapSummary)")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                Spacer()
+
+                Button(action: onEditGoal) {
+                    Image(systemName: summary.goalProgress == nil ? "target" : "slider.horizontal.below.square.and.square.filled")
+                        .font(.footnote.weight(.semibold))
+                        .padding(8)
+                        .background(Color(.tertiarySystemBackground), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(lastLogLabel)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let recentGapSummary = summary.recentHistorySummaryText() {
+                Text("Recent gaps: \(recentGapSummary)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let goalProgress = summary.goalProgress {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(goalProgress.summaryText())
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(goalColor(for: goalProgress.status))
+
+                    ProgressView(value: goalProgress.clampedRatio, total: 1)
+                        .tint(goalColor(for: goalProgress.status))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture(perform: onTap)
     }
 
     private var lastLogLabel: String {
@@ -223,5 +306,25 @@ private struct ViceCard: View {
         }
 
         return "Last hit \(timeSinceLastLog) ago"
+    }
+
+    private func goalColor(for status: ViceGoalStatus) -> Color {
+        switch status {
+        case .onTrack:
+            return .green
+        case .warning:
+            return .yellow
+        case .exceeded:
+            return .red
+        }
+    }
+}
+
+private struct ViceGoalEditorState: Identifiable {
+    let vice: Vice
+    let goal: ViceGoal?
+
+    var id: UUID {
+        vice.id
     }
 }

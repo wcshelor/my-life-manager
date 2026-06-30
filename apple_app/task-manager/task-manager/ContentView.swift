@@ -55,7 +55,7 @@ private struct TaskManagerTabShell: View {
                 financeRepository: appEnvironment.financeRepository
             )
                 .tabItem {
-                    Label("Home", systemImage: "square.grid.2x2.fill")
+                    Label("Home", systemImage: "house.fill")
                 }
 
             TaskListView(

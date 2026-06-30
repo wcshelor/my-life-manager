@@ -28,6 +28,21 @@ struct RoutineModelTests {
         #expect(routine.isActive(on: tuesday, calendar: calendar) == false)
     }
 
+    @Test func routineWithoutWeekdaysIsAlwaysActive() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let monday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 4))!
+        let tuesday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 5))!
+        let routine = Routine(
+            name: "Reset",
+            activeWeekdays: [],
+            items: [RoutineItem(title: "Plan", position: 0)]
+        )
+
+        #expect(routine.isActive(on: monday, calendar: calendar))
+        #expect(routine.isActive(on: tuesday, calendar: calendar))
+    }
+
     @Test func routineCompletionTracksItemLevelProgress() {
         let firstItem = RoutineItem(title: "One", position: 0)
         let secondItem = RoutineItem(title: "Two", position: 1)

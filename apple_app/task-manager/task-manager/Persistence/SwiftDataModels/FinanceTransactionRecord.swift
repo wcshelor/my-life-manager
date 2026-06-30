@@ -4,7 +4,7 @@ import SwiftData
 @Model
 final class FinanceTransactionRecord {
     var id: UUID = UUID()
-    var name: String = ""
+    var name: String?
     var amount: Decimal = 0
     var kindRawValue: String = TransactionKind.expense.rawValue
     var date: Date = Date.distantPast

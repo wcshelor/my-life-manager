@@ -952,9 +952,9 @@ struct HomeRoutineListWidget: View {
 
             if execution.routineProgress.isEmpty {
                 ContentUnavailableView(
-                    "No Routines Today",
+                    "No Active Routines",
                     systemImage: "list.bullet.clipboard",
-                    description: Text("Create a routine with daily or weekday timing.")
+                    description: Text("Create a routine that is always available or tied to weekdays.")
                 )
                 .frame(maxWidth: .infinity)
             } else {

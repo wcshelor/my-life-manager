@@ -15,19 +15,24 @@ struct SwiftDataFitnessRepositoryTests {
         let session = ExerciseSession(
             exerciseID: exercise.id,
             performedAt: Date(timeIntervalSince1970: 1_000),
-            strengthSets: [StrengthSet(reps: 5, weight: 185)]
+            strengthSets: [StrengthSet(reps: 5.5, weight: 185)],
+            notes: "Solid top set"
         )
+        let route = FitnessRoute(name: "River Loop", distance: 3.1, distanceUnit: .miles)
 
         try repository.saveExercise(exercise, replacingExerciseWithID: nil)
         try repository.saveWorkoutTemplate(template, replacingWorkoutTemplateWithID: nil)
         try repository.saveExerciseSession(session, replacingExerciseSessionWithID: nil)
+        try repository.saveRoute(route, replacingRouteWithID: nil)
 
         #expect(try repository.exercise(withID: exercise.id) == exercise)
         #expect(try repository.workoutTemplate(withID: template.id) == template)
         #expect(try repository.exerciseSession(withID: session.id) == session)
+        #expect(try repository.route(withID: route.id) == route)
         #expect(try repository.fetchExercises() == [exercise])
         #expect(try repository.fetchWorkoutTemplates() == [template])
         #expect(try repository.fetchExerciseSessions() == [session])
+        #expect(try repository.fetchRoutes() == [route])
     }
 
     @Test @MainActor func fitnessRepositoryPersistsTemplateReorderAndSessionOrdering() throws {
@@ -108,6 +113,20 @@ struct SwiftDataFitnessRepositoryTests {
 
         try repository.deleteExerciseSession(withID: originalSession.id)
         #expect(try repository.fetchExerciseSessions().isEmpty)
+    }
+
+    @Test @MainActor func fitnessRepositoryFiltersRoutesBySavedUnitData() throws {
+        let repository = try makeRepository()
+        let mileRoute = FitnessRoute(name: "Loop", distance: 3.2, distanceUnit: .miles)
+        let kilometerRoute = FitnessRoute(name: "Park", distance: 5, distanceUnit: .kilometers)
+
+        try repository.saveRoute(mileRoute, replacingRouteWithID: nil)
+        try repository.saveRoute(kilometerRoute, replacingRouteWithID: nil)
+
+        #expect(try repository.fetchRoutes().map(\.distanceUnit) == [.miles, .kilometers])
+
+        try repository.deleteRoute(withID: mileRoute.id)
+        #expect(try repository.fetchRoutes() == [kilometerRoute])
     }
 
     @MainActor

@@ -34,6 +34,13 @@ nonisolated struct FinanceCategorySection: Identifiable, Equatable, Sendable {
     }
 }
 
+nonisolated struct FinanceMonthSummary: Equatable, Sendable {
+    let income: Decimal
+    let expenses: Decimal
+    let balance: Decimal
+    let transactionCount: Int
+}
+
 nonisolated enum FinanceSummaryService {
     static func monthInterval(containing date: Date, calendar: Calendar = .current) -> DateInterval {
         let start = calendar.date(from: calendar.dateComponents([.year, .month], from: date))
@@ -57,6 +64,17 @@ nonisolated enum FinanceSummaryService {
 
     static func monthlyBalance(for transactions: [FinanceTransaction]) -> Decimal {
         totalIncome(for: transactions) - totalExpenses(for: transactions)
+    }
+
+    static func monthSummary(for transactions: [FinanceTransaction]) -> FinanceMonthSummary {
+        let income = totalIncome(for: transactions)
+        let expenses = totalExpenses(for: transactions)
+        return FinanceMonthSummary(
+            income: income,
+            expenses: expenses,
+            balance: income - expenses,
+            transactionCount: transactions.count
+        )
     }
 
     static func expenseTransactionsByCategory(for transactions: [FinanceTransaction]) -> [FinanceCategorySection] {

@@ -56,7 +56,8 @@ These are worth knowing because they are no longer just aspirational product not
 - Debriefs support more than calendar-only sources. The durable model and inference layer now handle work blocks, meetings, social hangouts, music practice, jam sessions, vice sessions, routines, and custom entries.
 - Work-block Debriefs can reuse Block Focus context so the user can review selected tasks and capture per-task outcomes after a block ends.
 - Vices now have session grouping on top of atomic hit logs. Repeated hits inside the same window roll into a `ViceSession`, and session closure can queue one Debrief candidate instead of spamming multiple reflections.
-- Fitness quick-log flows can seed a draft from the most recent session for the same exercise, while still preserving explicit edit flows for existing logs.
+- Vices tap cards can also hold one active limit goal per vice. The limit is created from the same one-tap card, tracks occurrences in an explicit start-to-deadline window, and renders an inline green/yellow/red progress bar until the deadline passes.
+- Fitness quick-log flows can seed a draft from the most recent session for the same exercise, while still preserving explicit edit flows for existing logs, partial-rep strength sets, session notes, cardio presets, and saved route reuse from the same editor flow.
 - Health Nutrition now has foundational calorie-and-macros plumbing under the existing lightweight meal log. Meals can carry multiple itemized entries, each entry stores per-serving nutrient snapshots, meals are oriented around timestamp plus itemized foods rather than meal types, and the Health repository now supports a starter searchable food catalog plus persisted custom foods.
 - Routines now have a dedicated module landing screen plus an in-routine editor. Routine sessions expose a top Edit action that pushes a step-list editor with add/reorder support, and routine module widgets inside steps can open the module landing page instead of the Home default action.
 
@@ -156,11 +157,11 @@ What these files do:
 - `Routines`: recurring daily/weekly routines with completion logging.
 - `Shopping`: practical shopping list capture and history.
 - `Health`: lightweight health logs and summaries, including an evolving Nutrition layer with multi-entry meals, per-serving nutrient snapshots, searchable food catalog plumbing, and meal debrief reminder timing.
-- `Fitness`: structured workout/exercise tracking with workout-day templates and latest-session-seeded quick logs.
+- `Fitness`: structured workout/exercise tracking with workout templates, latest-session-seeded quick logs, cardio presets, route reuse, and edit-in-place session history.
 - `Music Practice`: pieces and session logging, plus capture-review conversion into practice pieces.
 - `People Memory`: names, contexts, tags, and spaced-review style study flows.
-- `Vices`: personal vice tracking with lightweight one-tap logs, live elapsed-time summaries, and session-aware debrief generation for smoking-style patterns.
-- `Finance`: manual local-only expense/income tracking and category summaries.
+- `Vices`: personal vice tracking with lightweight one-tap logs, card-level per-vice limit goals, live elapsed-time summaries, and session-aware debrief generation for smoking-style patterns.
+- `Finance`: manual local-only expense/income tracking with a month overview, plus/minus entry flow, category-tap save, and category summaries.
 - `Debriefs`: app-owned reflection records with a queue-style quick-review flow, task-outcome capture for work blocks, multi-source template inference, and detailed prompts when needed.
   - the queue loader/persister should stay actor-safe: keep repository access inside `@MainActor` closures or methods, and update exhaustive template switches when `DebriefTemplateKind` changes
 - `Calendar Block Focus`: app-owned focus/intention metadata for calendar blocks.
@@ -189,7 +190,7 @@ Reasonably established in code shape:
 Implemented but still clearly evolving:
 
 - Health
-- Fitness, including seeded quick logs and workout-day drill-down flows
+- Fitness, including seeded quick logs, workout drill-down flows, route reuse, and shared create/edit session logging
 - Music Practice
 - People Memory
 - Vices, including vice sessions and Debrief handoff
@@ -357,7 +358,7 @@ Broadly, the tests focus on:
 - capture capability routing and inbox conversion
 - Debrief template inference, queue-first composer state, queue advancement, and persistence
 - vice session grouping, undo timing, session closure, and Debrief generation
-- Fitness draft-session seeding and Home summary behavior
+- Fitness draft-session seeding, route persistence, cardio preset logging, and Home summary behavior
 - Health nutrition catalog search, custom-food persistence, meal-entry nutrient aggregation, and existing meal/workout/PVT summaries
 
 The standard battery, targeted area-specific checks, and recurring failure-mode guidance live in `docs/testing_workflow.md`.
@@ -651,6 +652,7 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │   │   ├── FinanceCategoryRecord.swift
 │       │   │   │   ├── FinanceTransactionRecord.swift
 │       │   │   │   ├── FitnessExerciseRecord.swift
+│       │   │   │   ├── FitnessRouteRecord.swift
 │       │   │   │   ├── HomeLayoutRecord.swift
 │       │   │   │   ├── MealLogRecord.swift
 │       │   │   │   ├── PVTSessionRecord.swift
@@ -668,6 +670,7 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │   │   ├── SyncStateRecord.swift
 │       │   │   │   ├── SyncTombstoneRecord.swift
 │       │   │   │   ├── TaskRecord.swift
+│       │   │   │   ├── ViceGoalRecord.swift
 │       │   │   │   ├── ViceLogRecord.swift
 │       │   │   │   ├── ViceRecord.swift
 │       │   │   │   ├── ViceSessionRecord.swift

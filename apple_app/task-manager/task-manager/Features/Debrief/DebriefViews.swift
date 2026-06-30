@@ -521,25 +521,28 @@ private struct DebriefQueueCard: View {
             Text("Debrief Type")
                 .font(.headline)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(DebriefTemplateKind.allCases) { kind in
-                        Button {
-                            selectTemplateKind(kind)
-                        } label: {
-                            Text(kind.displayName)
-                                .font(.subheadline.weight(.medium))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    draft.templateKind == kind
-                                        ? Color.accentColor.opacity(0.18)
-                                        : Color.secondary.opacity(0.12),
-                                    in: Capsule()
-                                )
-                        }
-                        .buttonStyle(.plain)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110), spacing: 8)],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(DebriefTemplateKind.allCases) { kind in
+                    Button {
+                        selectTemplateKind(kind)
+                    } label: {
+                        Text(kind.displayName)
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                draft.templateKind == kind
+                                    ? Color.accentColor.opacity(0.18)
+                                    : Color.secondary.opacity(0.12),
+                                in: Capsule()
+                            )
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }

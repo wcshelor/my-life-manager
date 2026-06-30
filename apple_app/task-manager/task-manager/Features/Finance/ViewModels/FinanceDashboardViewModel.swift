@@ -33,6 +33,10 @@ final class FinanceDashboardViewModel: ObservableObject {
         selectedMonth.formatted(.dateTime.month(.wide).year())
     }
 
+    var monthSummary: FinanceMonthSummary {
+        FinanceSummaryService.monthSummary(for: transactions)
+    }
+
     var monthlyBalance: Decimal {
         FinanceSummaryService.monthlyBalance(for: transactions)
     }
@@ -88,23 +92,20 @@ final class FinanceDashboardViewModel: ObservableObject {
     }
 
     func saveTransaction(
-        name: String,
+        name: String?,
         amount: Decimal,
         kind: TransactionKind,
+        date: Date,
         category: FinanceCategory,
         note: String? = nil
     ) -> Bool {
-        guard FinanceTransaction.cleanedName(from: name) != nil else {
-            return false
-        }
-
         do {
             let now = nowProvider()
             let transaction = FinanceTransaction(
                 name: name,
                 amount: amount,
                 kind: kind,
-                date: now,
+                date: date,
                 category: category,
                 note: note,
                 createdAt: now,
@@ -121,9 +122,10 @@ final class FinanceDashboardViewModel: ObservableObject {
 
     func createCategoryAndSaveTransaction(
         categoryName: String,
-        transactionName: String,
+        transactionName: String?,
         amount: Decimal,
         kind: TransactionKind,
+        date: Date,
         note: String? = nil
     ) -> Bool {
         guard FinanceCategory.cleanedName(from: categoryName) != nil else {
@@ -136,7 +138,14 @@ final class FinanceDashboardViewModel: ObservableObject {
             let category = FinanceCategory(name: categoryName, kind: kind, sortOrder: nextSortOrder)
             try repository.saveCategory(category, replacingCategoryWithID: nil)
             categories = try repository.fetchCategories(includeArchived: false, kind: nil)
-            return saveTransaction(name: transactionName, amount: amount, kind: kind, category: category, note: note)
+            return saveTransaction(
+                name: transactionName,
+                amount: amount,
+                kind: kind,
+                date: date,
+                category: category,
+                note: note
+            )
         } catch {
             errorMessage = "Unable to save finance category: \(error.localizedDescription)"
             return false

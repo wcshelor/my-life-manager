@@ -7,7 +7,6 @@ struct FinanceDashboardView: View {
     @StateObject private var viewModel: FinanceDashboardViewModel
     @State private var entryKind: TransactionKind?
     @State private var isShowingTransactions = false
-
     private let onChange: () -> Void
 
     init(
@@ -21,22 +20,24 @@ struct FinanceDashboardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            header
+        ScrollView {
+            VStack(spacing: 20) {
+                header
 
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let errorMessage = viewModel.errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                totalsSection
+                categoryOverviewCard
+                transactionsCard
+                actionButtons
             }
-
-            donutCard
-            balanceRow
-            Spacer(minLength: 0)
-            actionButtons
+            .padding()
         }
-        .padding()
         .navigationTitle("Finance")
         .task {
             viewModel.loadIfNeeded()
@@ -46,18 +47,26 @@ struct FinanceDashboardView: View {
                 FinanceTransactionEntryView(
                     kind: kind,
                     categories: kind == .expense ? viewModel.expenseCategories : viewModel.incomeCategories,
-                    onSelectCategory: { amount, name, note, category in
-                        if viewModel.saveTransaction(name: name, amount: amount, kind: kind, category: category, note: note) {
+                    onSaveTransaction: { amount, name, note, date, category in
+                        if viewModel.saveTransaction(
+                            name: name,
+                            amount: amount,
+                            kind: kind,
+                            date: date,
+                            category: category,
+                            note: note
+                        ) {
                             onChange()
                             entryKind = nil
                         }
                     },
-                    onCreateCategory: { amount, name, note, categoryName in
+                    onCreateCategoryAndSave: { amount, name, note, date, categoryName in
                         if viewModel.createCategoryAndSaveTransaction(
                             categoryName: categoryName,
                             transactionName: name,
                             amount: amount,
                             kind: kind,
+                            date: date,
                             note: note
                         ) {
                             onChange()
@@ -111,8 +120,22 @@ struct FinanceDashboardView: View {
         }
     }
 
-    private var donutCard: some View {
+    private var totalsSection: some View {
+        HStack(spacing: 12) {
+            totalCard(title: "Income", amount: viewModel.monthSummary.income, color: .green)
+            totalCard(title: "Expenses", amount: viewModel.monthSummary.expenses, color: .red)
+            totalCard(title: "Balance", amount: viewModel.monthSummary.balance, color: .blue, signed: true)
+        }
+    }
+
+    private var categoryOverviewCard: some View {
         VStack(spacing: 12) {
+            HStack {
+                Text("Category Spending")
+                    .font(.headline)
+                Spacer()
+            }
+
             if viewModel.spendingBreakdown.isEmpty {
                 ContentUnavailableView(
                     "No Expenses This Month",
@@ -149,25 +172,25 @@ struct FinanceDashboardView: View {
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
-    private var balanceRow: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Balance")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(FinanceFormatting.signedCurrencyString(from: viewModel.monthlyBalance))
-                    .font(.title2.weight(.semibold))
-            }
-
-            Spacer()
-
+    private var transactionsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("This Month")
+                .font(.headline)
             Button {
                 isShowingTransactions = true
             } label: {
-                Label("Transactions", systemImage: "list.bullet")
+                HStack {
+                    Label("Transactions", systemImage: "list.bullet")
+                    Spacer()
+                    Text("\(viewModel.monthSummary.transactionCount)")
+                        .foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
         }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var actionButtons: some View {
@@ -181,6 +204,24 @@ struct FinanceDashboardView: View {
             }
         }
         .padding(.bottom, 12)
+    }
+
+    private func totalCard(title: String, amount: Decimal, color: Color, signed: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(
+                signed
+                    ? FinanceFormatting.signedCurrencyString(from: amount)
+                    : FinanceFormatting.currencyString(from: amount)
+            )
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(color)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func actionButton(symbol: String, color: Color, action: @escaping () -> Void) -> some View {
