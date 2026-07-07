@@ -20,10 +20,36 @@ struct ContentView: View {
 }
 
 private struct TaskManagerTabShell: View {
+    @ObservedObject private var alertRouteCoordinator: AlertRouteCoordinator
+    @StateObject private var notificationHomeViewModel: HomeExecutionViewModel
+
     private let appEnvironment: AppEnvironment
 
     init(appEnvironment: AppEnvironment) {
         self.appEnvironment = appEnvironment
+        self.alertRouteCoordinator = appEnvironment.alertRouteCoordinator
+        _notificationHomeViewModel = StateObject(
+            wrappedValue: HomeExecutionViewModel(
+                taskRepository: appEnvironment.taskRepository,
+                projectRepository: appEnvironment.projectRepository,
+                captureRepository: appEnvironment.captureRepository,
+                projectItemRepository: appEnvironment.projectItemRepository,
+                promiseRepository: appEnvironment.promiseRepository,
+                routineRepository: appEnvironment.routineRepository,
+                shoppingRepository: appEnvironment.shoppingRepository,
+                healthRepository: appEnvironment.healthRepository,
+                musicPracticeRepository: appEnvironment.musicPracticeRepository,
+                fitnessRepository: appEnvironment.fitnessRepository,
+                peopleMemoryRepository: appEnvironment.peopleMemoryRepository,
+                viceRepository: appEnvironment.viceRepository,
+                calendarBlockFocusRepository: appEnvironment.calendarBlockFocusRepository,
+                debriefRepository: appEnvironment.debriefRepository,
+                financeRepository: appEnvironment.financeRepository,
+                calendarPermissionProvider: appEnvironment.calendarPermissionProvider,
+                calendarReader: appEnvironment.calendarReader,
+                appUpdateReminderTracker: LiveAppUpdateReminderTracker()
+            )
+        )
     }
 
     var body: some View {
@@ -85,6 +111,8 @@ private struct TaskManagerTabShell: View {
 
             SettingsView(
                 settingsRepository: appEnvironment.settingsRepository,
+                alertRepository: appEnvironment.alertRepository,
+                alertScheduler: appEnvironment.alertScheduler,
                 homeLayoutRepository: appEnvironment.homeLayoutRepository,
                 projectRepository: appEnvironment.projectRepository,
                 routineRepository: appEnvironment.routineRepository,
@@ -95,10 +123,57 @@ private struct TaskManagerTabShell: View {
                     Label("Settings", systemImage: "gearshape")
                 }
         }
+        .sheet(item: pendingRoutineRouteBinding, onDismiss: {
+            alertRouteCoordinator.clearPendingRoutineRoute()
+        }) { route in
+            NavigationStack {
+                RoutineSessionView(
+                    viewModel: notificationHomeViewModel,
+                    registry: HomeWidgetRegistry.standard,
+                    taskRepository: appEnvironment.taskRepository,
+                    projectRepository: appEnvironment.projectRepository,
+                    captureRepository: appEnvironment.captureRepository,
+                    projectItemRepository: appEnvironment.projectItemRepository,
+                    scheduledBlockRepository: appEnvironment.scheduledBlockRepository,
+                    settingsRepository: appEnvironment.settingsRepository,
+                    calendarPermissionProvider: appEnvironment.calendarPermissionProvider,
+                    calendarListingService: appEnvironment.calendarListingService,
+                    calendarReader: appEnvironment.calendarReader,
+                    calendarWriter: appEnvironment.calendarWriter,
+                    calendarReconciler: appEnvironment.calendarReconciler,
+                    calendarChangeObserver: appEnvironment.calendarChangeObserver,
+                    promiseRepository: appEnvironment.promiseRepository,
+                    shoppingRepository: appEnvironment.shoppingRepository,
+                    healthRepository: appEnvironment.healthRepository,
+                    musicPracticeRepository: appEnvironment.musicPracticeRepository,
+                    fitnessRepository: appEnvironment.fitnessRepository,
+                    peopleMemoryRepository: appEnvironment.peopleMemoryRepository,
+                    viceRepository: appEnvironment.viceRepository,
+                    calendarBlockFocusRepository: appEnvironment.calendarBlockFocusRepository,
+                    debriefRepository: appEnvironment.debriefRepository,
+                    financeRepository: appEnvironment.financeRepository,
+                    routineID: route.routineID
+                )
+            }
+            .task {
+                notificationHomeViewModel.load()
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(iOS)
         .background(Color(uiColor: .systemBackground))
         #endif
+    }
+
+    private var pendingRoutineRouteBinding: Binding<AlertPendingRoutineRoute?> {
+        Binding(
+            get: {
+                alertRouteCoordinator.pendingRoutineRoute
+            },
+            set: { newValue in
+                alertRouteCoordinator.pendingRoutineRoute = newValue
+            }
+        )
     }
 }
 

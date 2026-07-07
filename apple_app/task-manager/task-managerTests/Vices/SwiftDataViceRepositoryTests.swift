@@ -5,7 +5,8 @@ import Testing
 struct SwiftDataViceRepositoryTests {
     @Test @MainActor func repositoryRoundTripsViceAndLogs() throws {
         let repository = try makeRepository()
-        let vice = Vice(name: "Dab Pen", unitLabel: "Hits")
+        let routineID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174601")!
+        let vice = Vice(name: "Dab Pen", unitLabel: "Hits", linkedRoutineID: routineID)
         let log = ViceLog(
             viceID: vice.id,
             timestamp: Date(timeIntervalSince1970: 1_000)

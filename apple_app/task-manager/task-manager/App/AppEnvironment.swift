@@ -27,6 +27,18 @@ final class AppEnvironment {
         container.settingsRepository
     }
 
+    var alertRepository: any AlertRepository {
+        container.alertRepository
+    }
+
+    var alertScheduler: AlertScheduler {
+        container.alertScheduler
+    }
+
+    var alertRouteCoordinator: AlertRouteCoordinator {
+        container.alertRouteCoordinator
+    }
+
     var homeLayoutRepository: any HomeLayoutRepository {
         container.homeLayoutRepository
     }

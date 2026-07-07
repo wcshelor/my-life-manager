@@ -10,4 +10,11 @@ protocol RoutineRepository {
     func fetchCompletionLog(for routineID: UUID, on date: Date, calendar: Calendar) throws -> RoutineCompletionLog?
     func fetchCompletionLogs(on date: Date, calendar: Calendar) throws -> [RoutineCompletionLog]
     func saveCompletionLog(_ log: RoutineCompletionLog, replacingLogWithID originalID: UUID?) throws
+    func fetchViceRoutineUnlock(
+        for viceID: UUID,
+        routineID: UUID
+    ) throws -> ViceRoutineUnlock?
+    func saveViceRoutineUnlock(_ unlock: ViceRoutineUnlock, replacingUnlockWithID originalID: UUID?) throws
+    func deleteViceRoutineUnlock(withID id: UUID) throws
+    func deleteExpiredViceRoutineUnlocks(asOf now: Date) throws
 }

@@ -23,6 +23,7 @@ struct HomeExecutionViewModelTests {
 
     private final class RecordingAppUpdateReminderTracker: AppUpdateReminderTracking {
         private(set) var refreshCallCount = 0
+        private(set) var resetCallCount = 0
         var summary: HomeAppUpdateReminderSummary?
 
         init(summary: HomeAppUpdateReminderSummary? = nil) {
@@ -31,6 +32,11 @@ struct HomeExecutionViewModelTests {
 
         func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
             refreshCallCount += 1
+            return summary
+        }
+
+        func reset(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
+            resetCallCount += 1
             return summary
         }
     }
@@ -103,6 +109,48 @@ struct HomeExecutionViewModelTests {
         #expect(updatedSummary?.buildNumber == "43")
         #expect(store.record?.buildNumber == "43")
         #expect(store.record?.lastUpdatedAt == later)
+    }
+
+    @Test func appRefreshReminderTrackerResetRefreshesLastUpdatedDate() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Date(timeIntervalSince1970: 1_710_000_000)
+        let later = now.addingTimeInterval(86_400)
+        let store = MemoryAppUpdateReminderStore()
+        let tracker = LiveAppUpdateReminderTracker(
+            store: store,
+            metadataProvider: StubAppBuildMetadataProvider(appVersion: "1.0.0", buildNumber: "42")
+        )
+
+        _ = tracker.refresh(now: now, calendar: calendar)
+        _ = tracker.reset(now: later, calendar: calendar)
+
+        #expect(store.record?.lastUpdatedAt == later)
+    }
+
+    @Test func resetAppRefreshReminderUpdatesSummary() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Date(timeIntervalSince1970: 1_710_000_000)
+        let summary = HomeAppUpdateReminderSummary(
+            appVersion: "1.0.0",
+            buildNumber: "42",
+            lastUpdatedAt: now,
+            now: now,
+            calendar: calendar
+        )
+        let tracker = RecordingAppUpdateReminderTracker(summary: summary)
+        let viewModel = HomeExecutionViewModel(
+            taskRepository: FakeTaskRepository(),
+            promiseRepository: FakePromiseRepository(),
+            routineRepository: FakeRoutineRepository(),
+            appUpdateReminderTracker: tracker,
+            calendar: calendar,
+            nowProvider: { now }
+        )
+
+        viewModel.resetAppUpdateReminder()
+
+        #expect(viewModel.appUpdateReminderSummary == summary)
+        #expect(tracker.resetCallCount == 1)
     }
 
     @Test func todayViewModelAggregatesActivePromisesAndRoutines() {
@@ -1175,10 +1223,16 @@ private final class FakePromiseRepository: PromiseRepository {
 private final class FakeRoutineRepository: RoutineRepository {
     var routines: [Routine]
     var logs: [RoutineCompletionLog]
+    var viceRoutineUnlocks: [ViceRoutineUnlock]
 
-    init(routines: [Routine] = [], logs: [RoutineCompletionLog] = []) {
+    init(
+        routines: [Routine] = [],
+        logs: [RoutineCompletionLog] = [],
+        viceRoutineUnlocks: [ViceRoutineUnlock] = []
+    ) {
         self.routines = routines
         self.logs = logs
+        self.viceRoutineUnlocks = viceRoutineUnlocks
     }
 
     func fetchRoutines() throws -> [Routine] {
@@ -1229,6 +1283,30 @@ private final class FakeRoutineRepository: RoutineRepository {
         } else {
             logs.append(log)
         }
+    }
+
+    func fetchViceRoutineUnlock(
+        for viceID: UUID,
+        routineID: UUID
+    ) throws -> ViceRoutineUnlock? {
+        viceRoutineUnlocks.first { $0.viceID == viceID && $0.routineID == routineID }
+    }
+
+    func saveViceRoutineUnlock(_ unlock: ViceRoutineUnlock, replacingUnlockWithID originalID: UUID?) throws {
+        let targetID = originalID ?? unlock.id
+        if let index = viceRoutineUnlocks.firstIndex(where: { $0.id == targetID || ($0.viceID == unlock.viceID && $0.routineID == unlock.routineID) }) {
+            viceRoutineUnlocks[index] = unlock
+        } else {
+            viceRoutineUnlocks.append(unlock)
+        }
+    }
+
+    func deleteViceRoutineUnlock(withID id: UUID) throws {
+        viceRoutineUnlocks.removeAll { $0.id == id }
+    }
+
+    func deleteExpiredViceRoutineUnlocks(asOf now: Date) throws {
+        viceRoutineUnlocks.removeAll { $0.expiresAt < now }
     }
 }
 

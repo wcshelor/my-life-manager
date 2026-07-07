@@ -43,6 +43,22 @@ struct RoutineModelTests {
         #expect(routine.isActive(on: tuesday, calendar: calendar))
     }
 
+    @Test func viceLinkedRoutineIsExcludedFromDailyActivation() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let monday = calendar.date(from: DateComponents(year: 2026, month: 5, day: 4))!
+        let routine = Routine(
+            name: "Smoke Gate",
+            kind: .viceLinked,
+            viceID: UUID(),
+            items: [RoutineItem(title: "Walk outside", position: 0)]
+        )
+
+        #expect(routine.kind == .viceLinked)
+        #expect(routine.viceID != nil)
+        #expect(routine.isActive(on: monday, calendar: calendar) == false)
+    }
+
     @Test func routineCompletionTracksItemLevelProgress() {
         let firstItem = RoutineItem(title: "One", position: 0)
         let secondItem = RoutineItem(title: "Two", position: 1)

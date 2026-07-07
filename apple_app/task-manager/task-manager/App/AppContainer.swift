@@ -9,6 +9,9 @@ struct AppContainer {
     let projectItemRepository: any ProjectItemRepository
     let scheduledBlockRepository: any ScheduledBlockRepository
     let settingsRepository: any SettingsRepository
+    let alertRepository: any AlertRepository
+    let alertScheduler: AlertScheduler
+    let alertRouteCoordinator: AlertRouteCoordinator
     let homeLayoutRepository: any HomeLayoutRepository
     let promiseRepository: any PromiseRepository
     let routineRepository: any RoutineRepository
@@ -40,6 +43,9 @@ struct AppContainer {
         let settingsRepository = SwiftDataSettingsRepository(
             modelContainer: modelContainer
         )
+        let alertRepository = SwiftDataAlertRepository(modelContainer: modelContainer)
+        let alertScheduler = AlertScheduler()
+        let alertRouteCoordinator = AlertRouteCoordinator()
         let homeLayoutRepository = SwiftDataHomeLayoutRepository(
             modelContainer: modelContainer
         )
@@ -95,6 +101,9 @@ struct AppContainer {
             projectItemRepository: projectItemRepository,
             scheduledBlockRepository: scheduledBlockRepository,
             settingsRepository: settingsRepository,
+            alertRepository: alertRepository,
+            alertScheduler: alertScheduler,
+            alertRouteCoordinator: alertRouteCoordinator,
             homeLayoutRepository: homeLayoutRepository,
             promiseRepository: promiseRepository,
             routineRepository: routineRepository,
@@ -150,6 +159,9 @@ struct AppContainer {
         let settingsRepository = SwiftDataSettingsRepository(
             modelContainer: modelContainer
         )
+        let alertRepository = SwiftDataAlertRepository(modelContainer: modelContainer)
+        let alertScheduler = AlertScheduler(notificationCenter: NoopAlertNotificationCenter())
+        let alertRouteCoordinator = AlertRouteCoordinator()
         let homeLayoutRepository = SwiftDataHomeLayoutRepository(
             modelContainer: modelContainer
         )
@@ -200,6 +212,9 @@ struct AppContainer {
             projectItemRepository: projectItemRepository,
             scheduledBlockRepository: scheduledBlockRepository,
             settingsRepository: settingsRepository,
+            alertRepository: alertRepository,
+            alertScheduler: alertScheduler,
+            alertRouteCoordinator: alertRouteCoordinator,
             homeLayoutRepository: homeLayoutRepository,
             promiseRepository: promiseRepository,
             routineRepository: routineRepository,

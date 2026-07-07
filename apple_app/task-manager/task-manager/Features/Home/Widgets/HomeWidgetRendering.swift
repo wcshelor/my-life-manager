@@ -97,9 +97,6 @@ struct HomeWidgetRendererRegistry {
                     context.perform(.openCapture, widget)
                 }
             },
-            AnyHomeWidgetRenderer(kind: .appUpdateReminder) { _, context in
-                HomeAppUpdateReminderWidget(summary: context.execution.appUpdateReminderSummary)
-            },
             AnyHomeWidgetRenderer(kind: .moduleCarousel) { _, context in
                 HomeModuleCarouselWidget(context: context)
             },
@@ -682,51 +679,6 @@ struct HomeActionWidget: View {
             }
         }
         .buttonStyle(.plain)
-    }
-}
-
-struct HomeAppUpdateReminderWidget: View {
-    let summary: HomeAppUpdateReminderSummary?
-
-    var body: some View {
-        HomeWidgetCardSurface(fillOpacity: 0.055, strokeOpacity: 0.12) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.title3)
-                        .foregroundStyle(.orange)
-                        .frame(width: 30)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("App Refresh")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Text(summary?.countdownLabel ?? "Tracking the last install")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.orange)
-                    }
-
-                    Spacer()
-                }
-
-                if let summary {
-                    Text(summary.detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-
-                    Text(summary.hint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                } else {
-                    Text("Open the app once after each reinstall to keep the reminder current.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                }
-            }
-        }
     }
 }
 

@@ -6,6 +6,8 @@ final class RoutineRecord {
     var id: UUID = UUID()
     var name: String = ""
     var notes: String?
+    var kindRawValue: String = RoutineKind.standard.rawValue
+    var viceID: UUID?
     var activeWeekdayRawValues: String = ""
     var itemsData: Data = Data()
     var stepLinksData: Data = Data()
@@ -22,6 +24,8 @@ final class RoutineRecord {
             id: id,
             name: name,
             notes: notes,
+            kind: RoutineKind(rawValue: kindRawValue) ?? .standard,
+            viceID: viceID,
             activeWeekdays: Self.decodeWeekdays(activeWeekdayRawValues),
             items: Self.decodeItems(itemsData),
             stepLinks: Self.decodeStepLinks(stepLinksData),
@@ -35,6 +39,8 @@ final class RoutineRecord {
         id = routine.id
         name = routine.name
         notes = routine.notes
+        kindRawValue = routine.kind.rawValue
+        viceID = routine.viceID
         activeWeekdayRawValues = Self.encodeWeekdays(routine.activeWeekdays)
         itemsData = Self.encodeItems(routine.items)
         stepLinksData = Self.encodeStepLinks(routine.stepLinks)

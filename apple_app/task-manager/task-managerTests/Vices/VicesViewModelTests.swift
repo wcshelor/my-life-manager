@@ -11,8 +11,10 @@ struct VicesViewModelTests {
         let vice = Vice(name: "Dab Pen", unitLabel: "Hits")
         let repository = InMemoryViceRepository(vices: [vice], logs: [])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             calendar: calendar,
             nowProvider: { now }
@@ -34,8 +36,10 @@ struct VicesViewModelTests {
         let vice = Vice(name: "Alcohol", unitLabel: "Drinks")
         let repository = InMemoryViceRepository(vices: [vice], logs: [])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { now }
         )
@@ -55,8 +59,10 @@ struct VicesViewModelTests {
         let vice = Vice(name: "Social Media", unitLabel: "Sessions")
         let repository = InMemoryViceRepository(vices: [vice], logs: [])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { now }
         )
@@ -83,8 +89,10 @@ struct VicesViewModelTests {
         )
         let repository = InMemoryViceRepository(vices: [vice], logs: [], sessions: [existingSession])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             calendar: calendar,
             nowProvider: { base.addingTimeInterval(3_500) }
@@ -109,8 +117,10 @@ struct VicesViewModelTests {
         )
         let repository = InMemoryViceRepository(vices: [vice], logs: [], sessions: [expiredSession])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { base.addingTimeInterval(20_500) }
         )
@@ -134,8 +144,10 @@ struct VicesViewModelTests {
         ]
         let repository = InMemoryViceRepository(vices: [vice], logs: logs)
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             calendar: calendar,
             nowProvider: { now }
@@ -159,8 +171,10 @@ struct VicesViewModelTests {
         )
         let repository = InMemoryViceRepository(vices: [vice], logs: [], sessions: [openSession])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { base.addingTimeInterval(3 * 3_600 + 1) }
         )
@@ -178,8 +192,10 @@ struct VicesViewModelTests {
         let vice = Vice(name: "Coffee", unitLabel: "Cups")
         let repository = InMemoryViceRepository(vices: [vice], logs: [])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { now }
         )
@@ -197,8 +213,10 @@ struct VicesViewModelTests {
         let vice = Vice(name: "Dab Pen", unitLabel: "Hits")
         let repository = InMemoryViceRepository(vices: [vice], logs: [])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { now }
         )
@@ -236,8 +254,10 @@ struct VicesViewModelTests {
         ]
         let repository = InMemoryViceRepository(vices: [vice], logs: logs, goals: [goal])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { now }
         )
@@ -273,8 +293,10 @@ struct VicesViewModelTests {
         )
         let repository = InMemoryViceRepository(vices: [vice], logs: [], goals: [existingGoal])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { now }
         )
@@ -305,8 +327,10 @@ struct VicesViewModelTests {
         )
         let repository = InMemoryViceRepository(vices: [vice], logs: [], goals: [expiredGoal])
         let debriefRepository = InMemoryDebriefRepository()
+        let routineRepository = InMemoryRoutineRepository()
         let viewModel = VicesViewModel(
             viceRepository: repository,
+            routineRepository: routineRepository,
             debriefRepository: debriefRepository,
             nowProvider: { now }
         )
@@ -315,6 +339,103 @@ struct VicesViewModelTests {
 
         #expect(repository.goals.first?.isArchived == true)
         #expect(viewModel.summaries.first?.goalProgress == nil)
+    }
+
+    @Test func linkedViceRequiresRoutineBeforeLogging() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let routine = Routine(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174801")!,
+            name: "Smoke Gate",
+            kind: .viceLinked,
+            viceID: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174802")!,
+            items: [RoutineItem(title: "Walk", position: 0)]
+        )
+        let vice = Vice(
+            id: routine.viceID!,
+            name: "Smoke",
+            unitLabel: "Hits",
+            linkedRoutineID: routine.id
+        )
+        let repository = InMemoryViceRepository(vices: [vice], logs: [])
+        let routineRepository = InMemoryRoutineRepository(routines: [routine])
+        let debriefRepository = InMemoryDebriefRepository()
+        let viewModel = VicesViewModel(
+            viceRepository: repository,
+            routineRepository: routineRepository,
+            debriefRepository: debriefRepository,
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        let result = viewModel.attemptLogVice(viceID: vice.id)
+
+        #expect(result == .needsRoutine(viceID: vice.id, routineID: routine.id))
+        #expect(viewModel.logs.isEmpty)
+    }
+
+    @Test func completingViceRoutineUnlockAllowsLoggingUntilWindowExpires() {
+        let base = Date(timeIntervalSince1970: 110_000)
+        let routine = Routine(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174811")!,
+            name: "Drink Gate",
+            kind: .viceLinked,
+            viceID: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174812")!,
+            items: [RoutineItem(title: "Pushups", position: 0)]
+        )
+        let vice = Vice(
+            id: routine.viceID!,
+            name: "Alcohol",
+            unitLabel: "Drinks",
+            linkedRoutineID: routine.id
+        )
+        let repository = InMemoryViceRepository(vices: [vice], logs: [])
+        let routineRepository = InMemoryRoutineRepository(routines: [routine])
+        let debriefRepository = InMemoryDebriefRepository()
+        var currentNow = base
+        let viewModel = VicesViewModel(
+            viceRepository: repository,
+            routineRepository: routineRepository,
+            debriefRepository: debriefRepository,
+            nowProvider: { currentNow }
+        )
+
+        viewModel.loadIfNeeded()
+        #expect(viewModel.completeViceRoutineUnlock(viceID: vice.id, routineID: routine.id))
+        #expect(viewModel.attemptLogVice(viceID: vice.id) == .logged)
+        #expect(viewModel.logs.count == 1)
+
+        currentNow = base.addingTimeInterval(ViceRoutineGatePolicy.unlockWindow + 1)
+        viewModel.load()
+
+        #expect(viewModel.attemptLogVice(viceID: vice.id) == .needsRoutine(viceID: vice.id, routineID: routine.id))
+    }
+
+    @Test func linkingExistingRoutineDuplicatesViceLinkedCopy() {
+        let now = Date(timeIntervalSince1970: 120_000)
+        let vice = Vice(name: "Social Media", unitLabel: "Sessions")
+        let standardRoutine = Routine(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174821")!,
+            name: "Phone Gate",
+            items: [RoutineItem(title: "Read one page", position: 0)]
+        )
+        let repository = InMemoryViceRepository(vices: [vice], logs: [])
+        let routineRepository = InMemoryRoutineRepository(routines: [standardRoutine])
+        let debriefRepository = InMemoryDebriefRepository()
+        let viewModel = VicesViewModel(
+            viceRepository: repository,
+            routineRepository: routineRepository,
+            debriefRepository: debriefRepository,
+            nowProvider: { now }
+        )
+
+        viewModel.loadIfNeeded()
+        #expect(viewModel.linkExistingRoutine(standardRoutine.id, toViceID: vice.id))
+
+        #expect(routineRepository.routines.count == 2)
+        let copiedRoutine = routineRepository.routines.first { $0.id != standardRoutine.id }
+        #expect(copiedRoutine?.kind == .viceLinked)
+        #expect(copiedRoutine?.viceID == vice.id)
+        #expect(repository.vices.first?.linkedRoutineID == copiedRoutine?.id)
     }
 }
 
@@ -420,6 +541,86 @@ private final class InMemoryViceRepository: ViceRepository {
 
         goals[index].archivedAt = archivedAt
         goals[index].updatedAt = archivedAt
+    }
+}
+
+@MainActor
+private final class InMemoryRoutineRepository: RoutineRepository {
+    var routines: [Routine]
+    var completionLogs: [RoutineCompletionLog]
+    var unlocks: [ViceRoutineUnlock]
+
+    init(
+        routines: [Routine] = [],
+        completionLogs: [RoutineCompletionLog] = [],
+        unlocks: [ViceRoutineUnlock] = []
+    ) {
+        self.routines = routines
+        self.completionLogs = completionLogs
+        self.unlocks = unlocks
+    }
+
+    func fetchRoutines() throws -> [Routine] {
+        routines
+    }
+
+    func fetchActiveRoutines(on date: Date, calendar: Calendar) throws -> [Routine] {
+        routines.filter { $0.isActive(on: date, calendar: calendar) }
+    }
+
+    func routine(withID id: UUID) throws -> Routine? {
+        routines.first { $0.id == id }
+    }
+
+    func saveRoutine(_ routine: Routine, replacingRoutineWithID originalID: UUID?) throws {
+        let targetID = originalID ?? routine.id
+        if let index = routines.firstIndex(where: { $0.id == targetID || $0.id == routine.id }) {
+            routines[index] = routine
+        } else {
+            routines.append(routine)
+        }
+    }
+
+    func deleteRoutine(withID id: UUID) throws {
+        routines.removeAll { $0.id == id }
+    }
+
+    func fetchCompletionLog(for routineID: UUID, on date: Date, calendar: Calendar) throws -> RoutineCompletionLog? {
+        completionLogs.first { $0.routineID == routineID && calendar.isDate($0.date, inSameDayAs: date) }
+    }
+
+    func fetchCompletionLogs(on date: Date, calendar: Calendar) throws -> [RoutineCompletionLog] {
+        completionLogs.filter { calendar.isDate($0.date, inSameDayAs: date) }
+    }
+
+    func saveCompletionLog(_ log: RoutineCompletionLog, replacingLogWithID originalID: UUID?) throws {
+        let targetID = originalID ?? log.id
+        if let index = completionLogs.firstIndex(where: { $0.id == targetID || $0.id == log.id }) {
+            completionLogs[index] = log
+        } else {
+            completionLogs.append(log)
+        }
+    }
+
+    func fetchViceRoutineUnlock(for viceID: UUID, routineID: UUID) throws -> ViceRoutineUnlock? {
+        unlocks.first { $0.viceID == viceID && $0.routineID == routineID }
+    }
+
+    func saveViceRoutineUnlock(_ unlock: ViceRoutineUnlock, replacingUnlockWithID originalID: UUID?) throws {
+        let targetID = originalID ?? unlock.id
+        if let index = unlocks.firstIndex(where: { $0.id == targetID || ($0.viceID == unlock.viceID && $0.routineID == unlock.routineID) }) {
+            unlocks[index] = unlock
+        } else {
+            unlocks.append(unlock)
+        }
+    }
+
+    func deleteViceRoutineUnlock(withID id: UUID) throws {
+        unlocks.removeAll { $0.id == id }
+    }
+
+    func deleteExpiredViceRoutineUnlocks(asOf now: Date) throws {
+        unlocks.removeAll { $0.expiresAt < now }
     }
 }
 

@@ -3,6 +3,7 @@ import Foundation
 
 protocol AppUpdateReminderTracking {
     func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary?
+    func reset(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary?
 }
 
 nonisolated struct HomeActionFeedback: Identifiable, Equatable, Sendable {
@@ -116,6 +117,10 @@ private struct NoopAppUpdateReminderTracker: AppUpdateReminderTracking {
     func refresh(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
         nil
     }
+
+    func reset(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
+        nil
+    }
 }
 
 struct LiveAppUpdateReminderTracker: AppUpdateReminderTracking {
@@ -147,6 +152,23 @@ struct LiveAppUpdateReminderTracker: AppUpdateReminderTracking {
             )
             store.saveRecord(record)
         }
+
+        return HomeAppUpdateReminderSummary(
+            appVersion: record.appVersion,
+            buildNumber: record.buildNumber,
+            lastUpdatedAt: record.lastUpdatedAt,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    func reset(now: Date, calendar: Calendar) -> HomeAppUpdateReminderSummary? {
+        let record = AppUpdateReminderRecord(
+            appVersion: metadataProvider.appVersion,
+            buildNumber: metadataProvider.buildNumber,
+            lastUpdatedAt: now
+        )
+        store.saveRecord(record)
 
         return HomeAppUpdateReminderSummary(
             appVersion: record.appVersion,
@@ -585,6 +607,10 @@ final class HomeExecutionViewModel: ObservableObject {
         return "\(completed)/\(routineProgress.count)"
     }
 
+    var routineRepositoryForFeatures: any RoutineRepository {
+        routineRepository
+    }
+
     var activeShoppingItemCount: Int {
         activeShoppingItems.count
     }
@@ -665,6 +691,21 @@ final class HomeExecutionViewModel: ObservableObject {
                 return .warning("No recent vice to repeat yet.")
             }
 
+            if let routineID = candidate.vice.linkedRoutineID,
+               let routine = try routineRepository.routine(withID: routineID),
+               routine.kind == .viceLinked,
+               let viceID = routine.viceID {
+                if let unlock = try routineRepository.fetchViceRoutineUnlock(for: viceID, routineID: routineID),
+                   unlock.isActive(at: nowProvider()) == false {
+                    try routineRepository.deleteViceRoutineUnlock(withID: unlock.id)
+                }
+
+                guard let unlock = try routineRepository.fetchViceRoutineUnlock(for: viceID, routineID: routineID),
+                      unlock.isActive(at: nowProvider()) else {
+                    return .warning("Complete the linked routine before logging \(candidate.vice.name).")
+                }
+            }
+
             _ = try ViceLogRecorder.recordHit(
                 for: candidate.vice,
                 at: nowProvider(),
@@ -675,6 +716,11 @@ final class HomeExecutionViewModel: ObservableObject {
         } catch {
             return .warning("Couldn't repeat the last vice.")
         }
+    }
+
+    func resetAppUpdateReminder() {
+        let now = nowProvider()
+        appUpdateReminderSummary = appUpdateReminderTracker.reset(now: now, calendar: calendar)
     }
 
     func load() {

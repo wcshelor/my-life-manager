@@ -155,7 +155,6 @@ nonisolated struct HomeWidgetKind: RawRepresentable, Codable, Hashable, CaseIter
         .currentRoutineStep,
         .promiseHistory,
         .shoppingQuickAdd,
-        .appUpdateReminder,
         .tasksModule,
         .plannerModule,
         .projectsModule,
@@ -488,7 +487,7 @@ nonisolated struct HomeWidgetInstance: Identifiable, Equatable, Sendable {
 }
 
 nonisolated struct HomeLayout: Equatable, Sendable {
-    static let currentVersion = 7
+    static let currentVersion = 8
 
     var version: Int
     var widgets: [HomeWidgetInstance]
@@ -507,29 +506,28 @@ nonisolated struct HomeLayout: Equatable, Sendable {
     static let defaultLayout = HomeLayout(
         widgets: [
             HomeWidgetInstance(kind: .inbox, size: .large, sortOrder: 0),
-            HomeWidgetInstance(kind: .appUpdateReminder, size: .large, sortOrder: 1),
-            HomeWidgetInstance(kind: .pinnedProjects, size: .large, sortOrder: 2),
-            HomeWidgetInstance(kind: .calendarOverview, size: .large, sortOrder: 3),
-            HomeWidgetInstance(kind: .debriefsPending, size: .large, sortOrder: 4),
-            HomeWidgetInstance(kind: .promises, size: .large, sortOrder: 5),
-            HomeWidgetInstance(kind: .routines, size: .large, sortOrder: 6),
-            HomeWidgetInstance(kind: .promiseHistory, size: .large, sortOrder: 7),
+            HomeWidgetInstance(kind: .pinnedProjects, size: .large, sortOrder: 1),
+            HomeWidgetInstance(kind: .calendarOverview, size: .large, sortOrder: 2),
+            HomeWidgetInstance(kind: .debriefsPending, size: .large, sortOrder: 3),
+            HomeWidgetInstance(kind: .promises, size: .large, sortOrder: 4),
+            HomeWidgetInstance(kind: .routines, size: .large, sortOrder: 5),
+            HomeWidgetInstance(kind: .promiseHistory, size: .large, sortOrder: 6),
             HomeWidgetInstance(
                 kind: .shoppingModule,
                 size: .small,
-                sortOrder: 8,
+                sortOrder: 7,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.shopping.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .healthModule,
                 size: .small,
-                sortOrder: 9,
+                sortOrder: 8,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.health.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .musicPracticeModule,
                 size: .small,
-                sortOrder: 10,
+                sortOrder: 9,
                 configuration: HomeWidgetConfiguration(
                     moduleID: HomeWidgetModule.musicPractice.rawValue,
                     selectedQuickActionIDs: ["startPractice", "currentPiece"]
@@ -538,19 +536,19 @@ nonisolated struct HomeLayout: Equatable, Sendable {
             HomeWidgetInstance(
                 kind: .fitnessModule,
                 size: .small,
-                sortOrder: 11,
+                sortOrder: 10,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.fitness.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .peopleMemoryModule,
                 size: .small,
-                sortOrder: 12,
+                sortOrder: 11,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.peopleMemory.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .vicesModule,
                 size: .small,
-                sortOrder: 13,
+                sortOrder: 12,
                 configuration: HomeWidgetConfiguration(
                     moduleID: HomeWidgetModule.vices.rawValue,
                     selectedQuickActionIDs: ["logHit", "activeSession"]
@@ -765,20 +763,8 @@ nonisolated enum HomeLayoutMigrator {
             }
         }
 
-        if version < 7 {
-            let hasAppReminder = migratedWidgets.contains { $0.kind == .appUpdateReminder }
-            let removedAppReminder = removedWidgets.contains { $0.kind == .appUpdateReminder }
-
-            if hasAppReminder == false, removedAppReminder == false {
-                migratedWidgets.insert(
-                    HomeWidgetInstance(
-                        kind: .appUpdateReminder,
-                        size: .large,
-                        sortOrder: min(1, migratedWidgets.count)
-                    ),
-                    at: min(1, migratedWidgets.count)
-                )
-            }
+        if version < 8 {
+            migratedWidgets.removeAll { $0.kind == .appUpdateReminder }
         }
 
         return migratedWidgets.enumerated().map { index, widget in
@@ -1064,14 +1050,6 @@ nonisolated struct HomeWidgetRegistry: Equatable, Sendable {
                 defaultSize: .small,
                 duplicatePolicy: .multiple,
                 defaultAction: .quickAddShopping
-            ),
-            HomeWidgetDescriptor(
-                kind: .appUpdateReminder,
-                displayName: "App Refresh",
-                iconSystemName: "arrow.triangle.2.circlepath",
-                module: .app,
-                supportedSizes: [.large],
-                defaultSize: .large
             ),
             HomeWidgetDescriptor(
                 kind: .healthModule,

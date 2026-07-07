@@ -56,10 +56,11 @@ These are worth knowing because they are no longer just aspirational product not
 - Debriefs support more than calendar-only sources. The durable model and inference layer now handle work blocks, meetings, social hangouts, music practice, jam sessions, vice sessions, routines, and custom entries.
 - Work-block Debriefs can reuse Block Focus context so the user can review selected tasks and capture per-task outcomes after a block ends.
 - Vices now have session grouping on top of atomic hit logs. Repeated hits inside the same window roll into a `ViceSession`, and session closure can queue one Debrief candidate instead of spamming multiple reflections.
-- Vices tap cards can also hold one active limit goal per vice. The limit is created from the same one-tap card, tracks occurrences in an explicit start-to-deadline window, and renders an inline green/yellow/red progress bar until the deadline passes.
+- Vices tap cards can also hold one active limit goal per vice. The limit is created from the same one-tap card, tracks occurrences in an explicit start-to-deadline window, supports an end-of-day deadline shortcut, and renders an inline green/yellow/red progress bar until the deadline passes.
+- Vices can now link to their own pre-vice routines. Those routines reuse the routine editor and session UI, but they are stored as vice-linked routines with their own short-lived unlock window instead of sharing daily routine completion state.
 - Fitness quick-log flows can seed a draft from the most recent session for the same exercise, while still preserving explicit edit flows for existing logs, partial-rep strength sets, session notes, cardio presets, and saved route reuse from the same editor flow.
 - Health Nutrition now has foundational calorie-and-macros plumbing under the existing lightweight meal log. Meals can carry multiple itemized entries, each entry stores per-serving nutrient snapshots, meals are oriented around timestamp plus itemized foods rather than meal types, and the Health repository now supports a starter searchable food catalog plus persisted custom foods.
-- Routines now have a dedicated module landing screen plus an in-routine editor. Routine sessions expose a top Edit action that pushes a step-list editor with add/reorder support, and routine module widgets inside steps can open the module landing page instead of the Home default action.
+- Routines now have a dedicated module landing screen plus an in-routine editor. Routine sessions expose a top Edit action that pushes a step-list editor with add/reorder support, routine module widgets inside steps can open the module landing page instead of the Home default action, and vice-linked routines appear as a separate routine type that does not participate in the normal daily Today flow.
 
 ## Source Of Truth And Architecture
 
@@ -106,8 +107,8 @@ Implementation notes:
 - Long-pressing a widget enters edit mode in the iPhone-home-screen style. In edit mode, the tile itself can be tapped to edit quick actions, and resize/remove controls remain available in the widget chrome.
 - Module widgets render up to two configurable quick-action buttons inside the card instead of using the old small-card numeric summary slot.
 - Quick-action choices are capped at two per widget. Invalid or deleted quick-action IDs are filtered out when widgets are rendered, and registry defaults are used until the user customizes the widget.
-- The Home screen now uses a small curated welcome banner and transient inline feedback for in-place command actions such as the Vices repeat-last quick action.
-- The Home board also includes an App Refresh widget that records the last sideloaded build timestamp and shows a weekly reinstall reminder on Home.
+- The Home screen now uses a small curated welcome banner, a tappable app-refresh countdown badge in the header, and transient inline feedback for in-place command actions such as the Vices repeat-last quick action.
+- The app-refresh countdown badge records the last sideloaded build timestamp, shows a weekly rebuild reminder, and resets only after confirmation from the Home header.
 
 To add a new widget-enabled module:
 
@@ -126,13 +127,15 @@ The app entry path is:
 - `apple_app/task-manager/task-manager/ContentView.swift`
 - `apple_app/task-manager/task-manager/App/AppContainer.swift`
 - `apple_app/task-manager/task-manager/App/AppEnvironment.swift`
+- `apple_app/task-manager/task-manager/App/AppNotificationCoordinator.swift`
 
 What these files do:
 
-- `task_managerApp.swift` boots the app and injects the shared SwiftData container.
+- `task_managerApp.swift` boots the app, injects the shared SwiftData container, and keeps the notification delegate alive.
 - `ContentView.swift` builds the four-tab shell.
 - `AppContainer.swift` constructs live and preview repositories/services and is the clearest dependency map in the codebase.
 - `AppEnvironment.swift` exposes those dependencies to the app shell and feature entry points.
+- `AppNotificationCoordinator.swift` handles local notification presentation, snooze actions, and route handoff into routines.
 
 `AppContainer.makeLive()` is especially useful for orientation because it shows:
 
@@ -154,16 +157,18 @@ What these files do:
 ### Supporting Domains Surfaced From Home
 
 - `Promises`: commitment/check-in workflows.
-- `Routines`: recurring daily/weekly routines with completion logging.
+- `Routines`: recurring daily/weekly routines with completion logging, plus a separate vice-linked routine type for pre-vice gates.
+- `Banners`: manual routine-linked fixed-time local notifications surfaced from Settings, with tap-to-open routing, urgency, privacy, and snooze support.
 - `Shopping`: practical shopping list capture and history.
 - `Health`: lightweight health logs and summaries, including an evolving Nutrition layer with multi-entry meals, per-serving nutrient snapshots, searchable food catalog plumbing, and meal debrief reminder timing.
 - `Fitness`: structured workout/exercise tracking with workout templates, latest-session-seeded quick logs, cardio presets, route reuse, and edit-in-place session history.
 - `Music Practice`: pieces and session logging, plus capture-review conversion into practice pieces.
 - `People Memory`: names, contexts, tags, and spaced-review style study flows.
-- `Vices`: personal vice tracking with lightweight one-tap logs, card-level per-vice limit goals, live elapsed-time summaries, and session-aware debrief generation for smoking-style patterns.
+- `Vices`: personal vice tracking with lightweight one-tap logs, card-level per-vice limit goals, end-of-day deadline shortcuts, linked pre-vice routines with short-lived unlock windows, live elapsed-time summaries, and session-aware debrief generation for smoking-style patterns.
 - `Finance`: manual local-only expense/income tracking with a month overview, plus/minus entry flow, category-tap save, and category summaries.
 - `Debriefs`: app-owned reflection records with a queue-style quick-review flow, task-outcome capture for work blocks, multi-source template inference, and detailed prompts when needed.
   - the queue loader/persister should stay actor-safe: keep repository access inside `@MainActor` closures or methods, and update exhaustive template switches when `DebriefTemplateKind` changes
+- `Banners`: manual routine-linked fixed-time notifications, with route handling and local notification scheduling isolated outside SwiftUI views.
 - `Calendar Block Focus`: app-owned focus/intention metadata for calendar blocks.
 - `Sync`: local sync scaffolding and status/settings UI, not a finished sync product.
 
@@ -173,6 +178,7 @@ What these files do:
 - `Home Widgets`: persisted Home board with module widgets, quick actions, pending Debriefs, and summary cards that aggregate many repositories in one place.
 - `Debrief + Block Focus`: post-event reflection can reuse pre-event task selection and intent context without writing back to Apple Calendar.
 - `Vice Session -> Debrief`: vice hits remain atomic logs, but eligible hits are also grouped into sessions that can produce one follow-up Debrief when the session window closes.
+- `Vice Routine Gate`: a vice can point at one vice-linked routine, and completing that routine opens a short-lived unlock window before the vice can be logged.
 
 ### Current Maturity Heuristic
 
@@ -186,6 +192,7 @@ Reasonably established in code shape:
 - Promises
 - Shopping
 - Finance
+- Banners
 
 Implemented but still clearly evolving:
 
@@ -195,6 +202,7 @@ Implemented but still clearly evolving:
 - People Memory
 - Vices, including vice sessions and Debrief handoff
 - Debriefs, including queue-style quick review, quick-action auto-advance, and Block Focus task-outcome capture
+- Banners, including manual routine-linked fixed-time notifications and notification-to-routine routing
 - Calendar Block Focus
 - Sync
 
@@ -212,7 +220,7 @@ Implemented but still clearly evolving:
 ### Domain Models
 
 - `apple_app/task-manager/task-manager/Models/`
-  - domain types for tasks, routines, health, shopping, scheduling, promises, people memory, fitness, vices, music practice, debriefs, block focus, and home widgets
+  - domain types for tasks, routines, banners, health, shopping, scheduling, promises, people memory, fitness, vices, music practice, debriefs, block focus, and home widgets
 
 Notable files:
 
@@ -238,6 +246,11 @@ Health nutrition note:
 - `MealEntry` stores a meal line item with servings and a nutrient snapshot so later food edits do not rewrite historical meals.
 - `MealLog` can now carry multiple entries while still preserving the older summary/note shape used by the current Health UI.
 - Meal rows now surface the derived debrief reminder time, which is three hours after the meal timestamp.
+
+Routine/vice note:
+
+- `RoutineModels.swift` now distinguishes standard routines from `viceLinked` routines and includes a durable `ViceRoutineUnlock` model for pre-vice unlock windows.
+- `ViceModels.swift` stores each vice's optional linked routine ID and formats end-of-day limit deadlines distinctly from custom timestamp deadlines.
 
 ### Feature UI And View Models
 
@@ -288,6 +301,7 @@ Repository coverage visible in the tree:
 - Settings
 - Home layout
 - Scheduled block
+- Alert / Banner
 - Promise
 - Routine
 - Shopping
@@ -330,6 +344,7 @@ The main automated coverage is in:
 Test coverage is organized by domain:
 
 - `Calendar/`
+- `Banners/`
 - `Debrief/`
 - `Features/`
 - `Finance/`
@@ -507,7 +522,8 @@ The following is the current repository tree as observed from the repo root, exc
 │       ├── task-manager
 │       │   ├── App
 │       │   │   ├── AppContainer.swift
-│       │   │   └── AppEnvironment.swift
+│       │   │   ├── AppEnvironment.swift
+│       │   │   └── AppNotificationCoordinator.swift
 │       │   ├── Assets.xcassets
 │       │   │   ├── AccentColor.colorset
 │       │   │   │   └── Contents.json
@@ -540,6 +556,10 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │       └── EventKitCalendarServices.swift
 │       │   ├── ContentView.swift
 │       │   ├── Features
+│       │   │   ├── Banners
+│       │   │   │   ├── BannerTemplateEditorView.swift
+│       │   │   │   ├── BannersView.swift
+│       │   │   │   └── BannersViewModel.swift
 │       │   │   ├── Debrief
 │       │   │   │   └── DebriefViews.swift
 │       │   │   ├── Finance
@@ -610,6 +630,7 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │       ├── VicesView.swift
 │       │   │       └── VicesViewModel.swift
 │       │   ├── Models
+│       │   │   ├── AlertModels.swift
 │       │   │   ├── CaptureCapabilityService.swift
 │       │   │   ├── CaptureModels.swift
 │       │   │   ├── CalendarBlockFocusModels.swift
@@ -630,6 +651,7 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   ├── Persistence
 │       │   │   ├── ModelContainerFactory.swift
 │       │   │   ├── Repositories
+│       │   │   │   ├── AlertRepository.swift
 │       │   │   │   ├── DebriefRepository.swift
 │       │   │   │   ├── FinanceRepository.swift
 │       │   │   │   ├── FitnessRepository.swift
@@ -645,6 +667,7 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │   │   ├── TaskRepository.swift
 │       │   │   │   └── ViceRepository.swift
 │       │   │   ├── SwiftDataModels
+│       │   │   │   ├── AlertTemplateRecord.swift
 │       │   │   │   ├── AppSettingsRecord.swift
 │       │   │   │   ├── CalendarBlockFocusRecord.swift
 │       │   │   │   ├── CalendarDebriefRecordModel.swift
@@ -673,10 +696,12 @@ The following is the current repository tree as observed from the repo root, exc
 │       │   │   │   ├── ViceGoalRecord.swift
 │       │   │   │   ├── ViceLogRecord.swift
 │       │   │   │   ├── ViceRecord.swift
+│       │   │   │   ├── ViceRoutineUnlockRecord.swift
 │       │   │   │   ├── ViceSessionRecord.swift
 │       │   │   │   ├── WorkoutLogRecord.swift
 │       │   │   │   └── WorkoutTemplateRecord.swift
 │       │   │   └── SwiftDataRepositories
+│       │   │       ├── SwiftDataAlertRepository.swift
 │       │   │       ├── SwiftDataCalendarBlockFocusRepository.swift
 │       │   │       ├── SwiftDataDebriefRepository.swift
 │       │   │       ├── SwiftDataFinanceRepository.swift
@@ -736,6 +761,9 @@ The following is the current repository tree as observed from the repo root, exc
 │       │           └── xcschemes
 │       │               └── xcschememanagement.plist
 │       └── task-managerTests
+│           ├── Banners
+│           │   ├── AlertRouteCoordinatorTests.swift
+│           │   └── AlertSchedulerTests.swift
 │           ├── Calendar
 │           │   ├── CalendarProjectMatcherTests.swift
 │           │   └── EventKitCalendarServicesTests.swift
@@ -763,6 +791,7 @@ The following is the current repository tree as observed from the repo root, exc
 │           │   ├── HomeExecutionViewModelTests.swift
 │           │   └── HomeLayoutViewModelTests.swift
 │           ├── Models
+│           │   ├── AlertModelTests.swift
 │           │   ├── CaptureCapabilityTests.swift
 │           │   ├── HomeWidgetModelTests.swift
 │           │   ├── MyTaskCollectionTests.swift
@@ -778,6 +807,7 @@ The following is the current repository tree as observed from the repo root, exc
 │           │   ├── PeopleMemoryViewModelTests.swift
 │           │   └── SwiftDataPeopleMemoryRepositoryTests.swift
 │           ├── Persistence
+│           │   ├── SwiftDataAlertRepositoryTests.swift
 │           │   ├── SwiftDataCalendarBlockFocusRepositoryTests.swift
 │           │   ├── SwiftDataDebriefRepositoryTests.swift
 │           │   ├── SwiftDataHomeLayoutRepositoryTests.swift

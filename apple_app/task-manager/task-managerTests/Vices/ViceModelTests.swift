@@ -7,10 +7,12 @@ struct ViceModelTests {
         #expect(Vice(newName: "  ", unitLabel: "Hits") == nil)
         #expect(Vice(newName: "Dab Pen", unitLabel: " ") == nil)
 
-        let vice = Vice(name: "  Dab Pen  ", unitLabel: "  Hits ")
+        let routineID = UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
+        let vice = Vice(name: "  Dab Pen  ", unitLabel: "  Hits ", linkedRoutineID: routineID)
 
         #expect(vice.name == "Dab Pen")
         #expect(vice.unitLabel == "Hits")
+        #expect(vice.linkedRoutineID == routineID)
     }
 
     @Test func viceLogAmountIsAtLeastOne() {
@@ -56,5 +58,34 @@ struct ViceModelTests {
         #expect(session.isActive(at: Date(timeIntervalSince1970: 20_000)) == false)
         #expect(ViceDurationFormatter.elapsedSince(Date(timeIntervalSince1970: 0), now: Date(timeIntervalSince1970: 3_661)) == "01:01:01")
         #expect(ViceSessionSummary(session: session, viceName: vice.name).summaryText.contains("5 hits over") == true)
+    }
+
+    @Test func viceGoalSummaryUsesEndOfDayLabelWhenDeadlineIsEndOfDay() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let start = calendar.date(from: DateComponents(year: 2026, month: 6, day: 30, hour: 8))!
+        let deadline = calendar.endOfDay(for: start)
+        let goal = ViceGoal(
+            viceID: UUID(),
+            maxOccurrences: 3,
+            startDate: start,
+            deadline: deadline
+        )
+
+        #expect(ViceGoalProgress(goal: goal, count: 1).summaryText(calendar: calendar).contains("end of Jun 30"))
+        #expect(deadline.isEndOfDay(in: calendar))
+    }
+
+    @Test func viceRoutineUnlockTracksActiveWindow() {
+        let completedAt = Date(timeIntervalSince1970: 1_000)
+        let unlock = ViceRoutineUnlock(
+            viceID: UUID(),
+            routineID: UUID(),
+            completedAt: completedAt,
+            expiresAt: completedAt.addingTimeInterval(900)
+        )
+
+        #expect(unlock.isActive(at: completedAt.addingTimeInterval(899)))
+        #expect(unlock.isActive(at: completedAt.addingTimeInterval(901)) == false)
     }
 }

@@ -65,14 +65,43 @@ struct RoutineModuleView: View {
             }
 
             Section("All Routines") {
-                if viewModel.routines.isEmpty {
+                if standardRoutines.isEmpty {
                     ContentUnavailableView(
                         "No Routines Yet",
                         systemImage: "checklist.checked",
                         description: Text("Create a routine that is always available or tied to specific weekdays.")
                     )
                 } else {
-                    ForEach(viewModel.routines) { routine in
+                    ForEach(standardRoutines) { routine in
+                        HStack(alignment: .top, spacing: 12) {
+                            Button {
+                                presentedSheet = .openRoutine(routine.id)
+                            } label: {
+                                routineRowContent(routine)
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+
+                            Button {
+                                presentedSheet = .editRoutine(routine)
+                            } label: {
+                                Image(systemName: "slider.horizontal.3")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+
+            Section("Pre-Vice Routines") {
+                if viceLinkedRoutines.isEmpty {
+                    Text("Vice-linked routines appear here after you create or link one from Vices.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(viceLinkedRoutines) { routine in
                         HStack(alignment: .top, spacing: 12) {
                             Button {
                                 presentedSheet = .openRoutine(routine.id)
@@ -155,6 +184,14 @@ struct RoutineModuleView: View {
         }
     }
 
+    private var standardRoutines: [Routine] {
+        viewModel.routines.filter { $0.kind == .standard }
+    }
+
+    private var viceLinkedRoutines: [Routine] {
+        viewModel.routines.filter { $0.kind == .viceLinked }
+    }
+
     private func routineRowContent(_ routine: Routine) -> some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -172,9 +209,14 @@ struct RoutineModuleView: View {
 
     private func routineSummary(for routine: Routine) -> String {
         let stepCount = routine.orderedItems.count
-        let scheduleText = routine.activeWeekdays.isEmpty
-            ? "Not day-based"
-            : routine.activeWeekdays.map(\.shortName).joined(separator: ", ")
+        let scheduleText: String
+        if routine.kind == .viceLinked {
+            scheduleText = "Pre-vice gate"
+        } else {
+            scheduleText = routine.activeWeekdays.isEmpty
+                ? "Not day-based"
+                : routine.activeWeekdays.map(\.shortName).joined(separator: ", ")
+        }
         let linkCount = routine.stepLinks.count
         return "\(stepCount) step\(stepCount == 1 ? "" : "s") · \(linkCount) link\(linkCount == 1 ? "" : "s") · \(scheduleText)"
     }
@@ -193,6 +235,8 @@ struct RoutineEditorView: View {
     @State private var stepLinks: [RoutineStepLink]
     @State private var createdAt: Date
     @State private var isArchived: Bool
+    @State private var kind: RoutineKind
+    @State private var viceID: UUID?
 
     init(
         routine: Routine?,
@@ -207,6 +251,8 @@ struct RoutineEditorView: View {
         _stepLinks = State(initialValue: routine?.stepLinks ?? [])
         _createdAt = State(initialValue: routine?.createdAt ?? .now)
         _isArchived = State(initialValue: routine?.isArchived ?? false)
+        _kind = State(initialValue: routine?.kind ?? .standard)
+        _viceID = State(initialValue: routine?.viceID)
     }
 
     var body: some View {
@@ -217,11 +263,17 @@ struct RoutineEditorView: View {
             }
 
             Section("Schedule") {
-                Toggle("Tie to specific weekdays", isOn: scheduledByWeekdayBinding)
+                if kind == .viceLinked {
+                    Text("Vice-linked routines are triggered from Vices and do not participate in the daily weekday schedule.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Toggle("Tie to specific weekdays", isOn: scheduledByWeekdayBinding)
 
-                if selectedWeekdays.isEmpty == false {
-                    ForEach(RoutineWeekday.allCases, id: \.self) { weekday in
-                        Toggle(weekday.shortName, isOn: weekdayBinding(for: weekday))
+                    if selectedWeekdays.isEmpty == false {
+                        ForEach(RoutineWeekday.allCases, id: \.self) { weekday in
+                            Toggle(weekday.shortName, isOn: weekdayBinding(for: weekday))
+                        }
                     }
                 }
             }
@@ -330,6 +382,8 @@ struct RoutineEditorView: View {
             id: routine?.id ?? UUID(),
             name: cleanedName,
             notes: MyTask.cleanedOptionalText(from: notes),
+            kind: kind,
+            viceID: viceID,
             activeWeekdays: Array(selectedWeekdays),
             items: cleanedItems.enumerated().map { index, item in
                 RoutineItem(id: item.id, title: item.title, position: index)
@@ -345,6 +399,21 @@ struct RoutineEditorView: View {
     }
 }
 
+private struct ViceRoutineSessionContext {
+    let viceID: UUID
+    let onComplete: (() -> Void)?
+}
+
+enum RoutineSessionKind {
+    case automatic
+    case viceGate(viceID: UUID, onComplete: (() -> Void)? = nil)
+}
+
+private struct RoutineStepHistoryEntry {
+    let itemID: UUID
+    let previousState: RoutineStepCompletionState
+}
+
 struct RoutineSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: HomeExecutionViewModel
@@ -354,6 +423,8 @@ struct RoutineSessionView: View {
     @State private var isShowingLinkPicker = false
     @State private var editingRoutine = false
     @State private var editingLink: RoutineStepLink?
+    @State private var viceSessionLog: RoutineCompletionLog?
+    @State private var viceActionHistory: [RoutineStepHistoryEntry] = []
 
     let registry: HomeWidgetRegistry
     let taskRepository: any TaskRepository
@@ -379,6 +450,7 @@ struct RoutineSessionView: View {
     let debriefRepository: any DebriefRepository
     let financeRepository: any FinanceRepository
     let routineID: UUID
+    let sessionKind: RoutineSessionKind = .automatic
 
     var body: some View {
         routineSessionContent
@@ -426,6 +498,7 @@ struct RoutineSessionView: View {
                 }
             }
             .onAppear {
+                prepareViceSessionIfNeeded()
                 alignCurrentIndex(with: progressForCurrentRoutine)
             }
             .onChange(of: progressForCurrentRoutine?.completionLog) { _, _ in
@@ -466,7 +539,43 @@ struct RoutineSessionView: View {
     }
 
     private var progressForCurrentRoutine: HomeRoutineProgress? {
-        viewModel.progress(for: routineID)
+        if viceSessionContext != nil,
+           let routine = routineForSession {
+            return HomeRoutineProgress(routine: routine, completionLog: viceSessionLog)
+        }
+
+        return viewModel.progress(for: routineID)
+    }
+
+    private var routineForSession: Routine? {
+        if let progress = viewModel.progress(for: routineID) {
+            return progress.routine
+        }
+
+        return viewModel.routines.first { $0.id == routineID }
+    }
+
+    private var viceSessionContext: ViceRoutineSessionContext? {
+        switch sessionKind {
+        case .automatic:
+            guard let routine = viewModel.routines.first(where: { $0.id == routineID }),
+                  routine.kind == .viceLinked,
+                  let viceID = routine.viceID else {
+                return nil
+            }
+            return ViceRoutineSessionContext(viceID: viceID, onComplete: nil)
+        case .viceGate(let viceID, let onComplete):
+            return ViceRoutineSessionContext(viceID: viceID, onComplete: onComplete)
+        }
+    }
+
+    private func prepareViceSessionIfNeeded() {
+        guard viceSessionContext != nil, viceSessionLog == nil else {
+            return
+        }
+
+        viceSessionLog = RoutineCompletionLog(routineID: routineID, date: .now, createdAt: .now)
+        viceActionHistory = []
     }
 
     private func activeRoutineView(for progress: HomeRoutineProgress) -> some View {
@@ -733,8 +842,30 @@ struct RoutineSessionView: View {
             })
         case .vices:
             return AnyView(VicesView(
+                homeViewModel: viewModel,
+                routineRepository: viewModel.routineRepositoryForFeatures,
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                captureRepository: captureRepository,
+                projectItemRepository: projectItemRepository,
+                scheduledBlockRepository: scheduledBlockRepository,
+                settingsRepository: settingsRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarListingService: calendarListingService,
+                calendarReader: calendarReader,
+                calendarWriter: calendarWriter,
+                calendarReconciler: calendarReconciler,
+                calendarChangeObserver: calendarChangeObserver,
+                promiseRepository: promiseRepository,
+                shoppingRepository: shoppingRepository,
+                healthRepository: healthRepository,
+                musicPracticeRepository: musicPracticeRepository,
+                fitnessRepository: fitnessRepository,
+                peopleMemoryRepository: peopleMemoryRepository,
                 viceRepository: viceRepository,
-                debriefRepository: debriefRepository
+                calendarBlockFocusRepository: calendarBlockFocusRepository,
+                debriefRepository: debriefRepository,
+                financeRepository: financeRepository
             ) {
                 viewModel.load()
             })
@@ -868,7 +999,7 @@ struct RoutineSessionView: View {
             Spacer(minLength: 0)
             HStack(spacing: 18) {
                 Button {
-                    viewModel.undoLastRoutineAction(routineID: routineID)
+                    undoLastAction()
                 } label: {
                     VStack(spacing: 8) {
                         Image(systemName: "arrow.uturn.backward.circle.fill")
@@ -878,14 +1009,14 @@ struct RoutineSessionView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 84)
-                    .foregroundStyle(progress.lastTouchedItem == nil ? Color.secondary : Color.primary)
+                    .foregroundStyle(canUndo(progress: progress) ? Color.primary : Color.secondary)
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
                             .fill(Color(.secondarySystemBackground))
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(progress.lastTouchedItem == nil)
+                .disabled(canUndo(progress: progress) == false)
 
                 Button {
                     guard let currentItem else {
@@ -933,11 +1064,27 @@ struct RoutineSessionView: View {
 
     private func advance(stepID: UUID, state: RoutineStepCompletionState, totalCount: Int) {
         let shouldDismiss = isLastStep(totalCount: totalCount)
-        viewModel.setRoutineItem(routineID: routineID, itemID: stepID, state: state)
-        if shouldDismiss {
-            dismiss()
+        if let viceContext = viceSessionContext {
+            let previousState = viceSessionLog?.state(for: stepID) ?? .untouched
+            viceActionHistory.append(RoutineStepHistoryEntry(itemID: stepID, previousState: previousState))
+            var log = viceSessionLog ?? RoutineCompletionLog(routineID: routineID, date: .now, createdAt: .now)
+            log.setItem(stepID, state: state)
+            viceSessionLog = log
+            if shouldDismiss {
+                if viewModel.completeViceRoutineUnlock(viceID: viceContext.viceID, routineID: routineID) {
+                    viceContext.onComplete?()
+                    dismiss()
+                }
+            } else {
+                currentIndex = min(currentIndex + 1, totalCount)
+            }
         } else {
-            currentIndex = min(currentIndex + 1, totalCount)
+            viewModel.setRoutineItem(routineID: routineID, itemID: stepID, state: state)
+            if shouldDismiss {
+                dismiss()
+            } else {
+                currentIndex = min(currentIndex + 1, totalCount)
+            }
         }
     }
 
@@ -959,6 +1106,28 @@ struct RoutineSessionView: View {
             currentIndex = firstUntouchedIndex
         } else {
             currentIndex = steps.count
+        }
+    }
+
+    private func canUndo(progress: HomeRoutineProgress) -> Bool {
+        if viceSessionContext != nil {
+            return viceActionHistory.isEmpty == false
+        }
+
+        return progress.lastTouchedItem != nil
+    }
+
+    private func undoLastAction() {
+        if viceSessionContext != nil {
+            guard let lastAction = viceActionHistory.popLast() else {
+                return
+            }
+            var log = viceSessionLog ?? RoutineCompletionLog(routineID: routineID, date: .now, createdAt: .now)
+            log.setItem(lastAction.itemID, state: lastAction.previousState)
+            viceSessionLog = log
+            alignCurrentIndex(with: progressForCurrentRoutine)
+        } else {
+            viewModel.undoLastRoutineAction(routineID: routineID)
         }
     }
 

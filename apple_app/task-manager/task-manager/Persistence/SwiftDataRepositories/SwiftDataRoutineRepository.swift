@@ -95,6 +95,53 @@ final class SwiftDataRoutineRepository: RoutineRepository {
         try modelContext.save()
     }
 
+    func fetchViceRoutineUnlock(
+        for viceID: UUID,
+        routineID: UUID
+    ) throws -> ViceRoutineUnlock? {
+        try fetchAllUnlockRecords()
+            .map(\.unlock)
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .first { $0.viceID == viceID && $0.routineID == routineID }
+    }
+
+    func saveViceRoutineUnlock(_ unlock: ViceRoutineUnlock, replacingUnlockWithID originalID: UUID?) throws {
+        let record =
+            try fetchUnlockRecord(withID: originalID ?? unlock.id)
+            ?? fetchUnlockRecord(withID: unlock.id)
+            ?? fetchUnlockRecord(viceID: unlock.viceID, routineID: unlock.routineID)
+
+        if let record {
+            record.update(from: unlock)
+        } else {
+            modelContext.insert(ViceRoutineUnlockRecord(unlock: unlock))
+        }
+
+        try modelContext.save()
+    }
+
+    func deleteViceRoutineUnlock(withID id: UUID) throws {
+        guard let record = try fetchUnlockRecord(withID: id) else {
+            return
+        }
+
+        modelContext.delete(record)
+        try modelContext.save()
+    }
+
+    func deleteExpiredViceRoutineUnlocks(asOf now: Date) throws {
+        let expired = try fetchAllUnlockRecords()
+            .filter { $0.expiresAt < now }
+        guard expired.isEmpty == false else {
+            return
+        }
+
+        for record in expired {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
+    }
+
     private func fetchAllRoutineRecords() throws -> [RoutineRecord] {
         try modelContext.fetch(FetchDescriptor<RoutineRecord>())
     }
@@ -109,5 +156,17 @@ final class SwiftDataRoutineRepository: RoutineRepository {
 
     private func fetchLogRecord(withID id: UUID) throws -> RoutineCompletionLogRecord? {
         try fetchAllLogRecords().first { $0.id == id }
+    }
+
+    private func fetchAllUnlockRecords() throws -> [ViceRoutineUnlockRecord] {
+        try modelContext.fetch(FetchDescriptor<ViceRoutineUnlockRecord>())
+    }
+
+    private func fetchUnlockRecord(withID id: UUID) throws -> ViceRoutineUnlockRecord? {
+        try fetchAllUnlockRecords().first { $0.id == id }
+    }
+
+    private func fetchUnlockRecord(viceID: UUID, routineID: UUID) throws -> ViceRoutineUnlockRecord? {
+        try fetchAllUnlockRecords().first { $0.viceID == viceID && $0.routineID == routineID }
     }
 }

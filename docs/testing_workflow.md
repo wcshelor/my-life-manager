@@ -31,14 +31,15 @@ Current automated confidence covers:
 - Home widget model resolution and landing-target routing behavior
 - capture capability routing and candidate generation for Tasks, Shopping, and Music Practice
 - promise models, repositories, and Home aggregation behavior
-- routine models, repositories, and daily completion behavior
+- routine models, repositories, daily completion behavior, and vice-linked unlock persistence
+- Banners model validation, SwiftData repository round trips, scheduler behavior, and notification-route handling
 - Shopping models, SwiftData repository round trips, view-model behavior, and inbox conversion
 - Debrief model validation, queue filtering, queue-review composer state, and SwiftData round trips
 - work-in-progress Health model calculations, nutrition catalog search/custom-food persistence, SwiftData repository round trips, Health view-model summaries, and meal debrief reminder timing
 - Fitness model validation, SwiftData repository and route round trips, draft-session seeding, cardio preset logging, session-note handling, Fitness view-model state, and Home Fitness summaries
 - Music Practice model validation, SwiftData repository round trips, view-model behavior, and Home summaries
 - People Memory model validation, SwiftData repository round trips, view-model behavior, and Home summaries
-- Vices model validation, SwiftData repository round trips, undo behavior, vice session grouping, and vice-session Debrief generation
+- Vices model validation, SwiftData repository round trips, undo behavior, vice session grouping, vice-linked routine gating, and vice-session Debrief generation
 
 ## 1A. Area-Specific Battery Expectations
 
@@ -57,7 +58,15 @@ Use the baseline battery above, then add the narrowest matching targeted checks 
 - update or inspect `apple_app/task-manager/task-managerTests/Routines/RoutineModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Routines/SwiftDataRoutineRepositoryTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Home/HomeExecutionViewModelTests.swift`
-- manually verify routine creation, step reordering, step-link quick-action editing, and routine module landing-page launches when the UI changed
+- manually verify routine creation, step reordering, step-link quick-action editing, routine module landing-page launches, and vice-linked routine sectioning/session flow when the UI changed
+
+### Banners
+
+- update or inspect `apple_app/task-manager/task-managerTests/Models/AlertModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Persistence/SwiftDataAlertRepositoryTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Banners/AlertSchedulerTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Banners/AlertRouteCoordinatorTests.swift`
+- manually verify Banner creation, editing, enable/disable, delete, first-save permission onboarding, and notification-to-routine routing when the UI changed
 
 ### Debriefs / Block Focus
 
@@ -76,7 +85,7 @@ Use the baseline battery above, then add the narrowest matching targeted checks 
 - update or inspect `apple_app/task-manager/task-managerTests/Vices/VicesViewModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Vices/ViceModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Vices/SwiftDataViceRepositoryTests.swift`
-- manually verify vice undo, active-session summaries, card-level goal creation/editing, goal progress-bar color changes, and Debrief handoff UI only when those surfaces changed
+- manually verify vice undo, active-session summaries, card-level goal creation/editing, end-of-day deadline selection, linked-routine gating, and Debrief handoff UI only when those surfaces changed
 
 ### Fitness
 
@@ -164,7 +173,7 @@ Validate:
 - module widgets show configurable in-card quick-action buttons and those selections persist after relaunch
 - promise module landing pages open from Home and from routine-step module links
 - the Home banner shows a stable welcome message and the transient confirmation appears after in-place quick actions
-- the App Refresh widget shows the last sideload/update time and a weekly reinstall countdown
+- the Home header shows the app-refresh countdown badge, and tapping it opens a confirmation before resetting the weekly reinstall countdown
 - pending Debrief, Vices, People, Fitness, and other module summaries refresh after underlying data changes
 - new promise creation
 - active promise visibility on Home
@@ -181,6 +190,8 @@ Validate:
 
 - daily routine creation
 - selected-weekday routine creation
+- vice-linked routine creation from Vices
+- vice-linked routines appear in their own Routines section
 - item ordering
 - routine sessions show a top Edit action that pushes the step-list editor
 - routine editing supports adding steps and drag-reordering from the pushed editor
@@ -189,7 +200,22 @@ Validate:
 - Home visibility for routines active today
 - item completion and uncompletion
 - per-day completion persistence after relaunch
+- vice-linked routines do not appear in the normal Today routine surface
 - no direct Apple Calendar writes from routines
+
+### Banners
+
+Validate:
+
+- open Banners from Settings
+- create a Banner for a Morning Routine or Night Routine
+- edit the recurring time and selected weekdays
+- switch between normal and Time Sensitive urgency
+- switch between full and title-only privacy
+- enable and disable a Banner and confirm notifications reschedule or cancel
+- delete a Banner and confirm the pending notifications disappear
+- confirm notification permission onboarding appears on the first save or first enable
+- tap the notification and confirm it opens the intended routine
 
 ### Tasks
 
@@ -309,6 +335,11 @@ Validate:
 
 - create or edit a vice
 - log a hit from the main vice card
+- add or edit a vice limit with the end-of-day shortcut and confirm the deadline stores as the end of the selected date
+- create a pre-vice routine from a vice card
+- link an existing routine and confirm the vice receives a copied vice-linked routine instead of mutating the original
+- tap a gated vice without an active unlock and confirm the routine opens instead of logging the vice
+- complete the pre-vice routine and confirm the vice becomes loggable during the unlock window
 - repeat the most recent active vice from Home and confirm the Home summary updates without navigation
 - confirm the repeat-last Home quick action shows a gentle inline message when no prior active vice log exists
 - undo a recent hit inside the undo window

@@ -161,9 +161,13 @@ struct SettingsView: View {
     private let homeLayoutRepository: any HomeLayoutRepository
     private let projectRepository: any ProjectRepository
     private let routineRepository: any RoutineRepository
+    private let alertRepository: any AlertRepository
+    private let alertScheduler: AlertScheduler
 
     init(
         settingsRepository: any SettingsRepository,
+        alertRepository: any AlertRepository,
+        alertScheduler: AlertScheduler,
         homeLayoutRepository: any HomeLayoutRepository,
         projectRepository: any ProjectRepository,
         routineRepository: any RoutineRepository,
@@ -173,6 +177,8 @@ struct SettingsView: View {
         self.homeLayoutRepository = homeLayoutRepository
         self.projectRepository = projectRepository
         self.routineRepository = routineRepository
+        self.alertRepository = alertRepository
+        self.alertScheduler = alertScheduler
         _viewModel = StateObject(
             wrappedValue: SettingsViewModel(
                 settingsRepository: settingsRepository,
@@ -209,6 +215,25 @@ struct SettingsView: View {
                     }
 
                     Text(homeSummary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Banners") {
+                    NavigationLink {
+                        BannersView(
+                            alertRepository: alertRepository,
+                            alertScheduler: alertScheduler,
+                            routineRepository: routineRepository
+                        )
+                    } label: {
+                        LabeledContent("Manage Banners") {
+                            Text("Morning / Night")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Text("Create routine-linked local notifications that open a selected Routine.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -339,12 +364,15 @@ struct SettingsView: View {
 }
 
 #Preview {
+    let previewContainer = AppContainer.makePreview()
     SettingsView(
-        settingsRepository: AppContainer.makePreview().settingsRepository,
-        homeLayoutRepository: AppContainer.makePreview().homeLayoutRepository,
-        projectRepository: AppContainer.makePreview().projectRepository,
-        routineRepository: AppContainer.makePreview().routineRepository,
-        calendarPermissionProvider: AppContainer.makePreview().calendarPermissionProvider,
-        calendarListingService: AppContainer.makePreview().calendarListingService
+        settingsRepository: previewContainer.settingsRepository,
+        alertRepository: previewContainer.alertRepository,
+        alertScheduler: previewContainer.alertScheduler,
+        homeLayoutRepository: previewContainer.homeLayoutRepository,
+        projectRepository: previewContainer.projectRepository,
+        routineRepository: previewContainer.routineRepository,
+        calendarPermissionProvider: previewContainer.calendarPermissionProvider,
+        calendarListingService: previewContainer.calendarListingService
     )
 }

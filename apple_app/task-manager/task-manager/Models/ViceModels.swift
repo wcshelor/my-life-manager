@@ -53,6 +53,7 @@ nonisolated struct Vice: Identifiable, Equatable, Hashable, Sendable {
     let id: UUID
     var name: String
     var unitLabel: String
+    var linkedRoutineID: UUID?
     let createdAt: Date
     var updatedAt: Date
     var isArchived: Bool
@@ -61,6 +62,7 @@ nonisolated struct Vice: Identifiable, Equatable, Hashable, Sendable {
         id: UUID = UUID(),
         name: String,
         unitLabel: String,
+        linkedRoutineID: UUID? = nil,
         createdAt: Date = .now,
         updatedAt: Date? = nil,
         isArchived: Bool = false
@@ -68,6 +70,7 @@ nonisolated struct Vice: Identifiable, Equatable, Hashable, Sendable {
         self.id = id
         self.name = Self.cleanedName(from: name) ?? name.trimmingCharacters(in: .whitespacesAndNewlines)
         self.unitLabel = Self.cleanedUnitLabel(from: unitLabel) ?? unitLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.linkedRoutineID = linkedRoutineID
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.isArchived = isArchived
@@ -201,8 +204,28 @@ nonisolated struct ViceGoalProgress: Equatable, Hashable, Sendable {
         goal.status(forCount: count)
     }
 
-    func summaryText() -> String {
-        "\(count) / \(goal.maxOccurrences) until \(goal.deadline.formatted(.dateTime.month(.abbreviated).day()))"
+    func summaryText(calendar: Calendar = .current) -> String {
+        let deadlineText: String
+        if goal.deadline.isEndOfDay(in: calendar) {
+            deadlineText = "end of \(goal.deadline.formatted(.dateTime.month(.abbreviated).day()))"
+        } else {
+            deadlineText = goal.deadline.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        }
+        return "\(count) / \(goal.maxOccurrences) until \(deadlineText)"
+    }
+}
+
+extension Date {
+    func isEndOfDay(in calendar: Calendar) -> Bool {
+        self == calendar.endOfDay(for: self)
+    }
+}
+
+extension Calendar {
+    func endOfDay(for date: Date) -> Date {
+        let dayStart = startOfDay(for: date)
+        let nextDay = self.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
+        return nextDay.addingTimeInterval(-1)
     }
 }
 

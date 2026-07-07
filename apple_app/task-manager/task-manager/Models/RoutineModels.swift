@@ -1,5 +1,10 @@
 import Foundation
 
+nonisolated enum RoutineKind: String, CaseIterable, Codable, Sendable {
+    case standard
+    case viceLinked
+}
+
 nonisolated enum RoutineWeekday: Int, CaseIterable, Codable, Sendable {
     case sunday = 1
     case monday = 2
@@ -146,6 +151,8 @@ nonisolated struct Routine: Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var notes: String?
+    var kind: RoutineKind
+    var viceID: UUID?
     var activeWeekdays: [RoutineWeekday]
     var items: [RoutineItem]
     var stepLinks: [RoutineStepLink]
@@ -157,6 +164,8 @@ nonisolated struct Routine: Identifiable, Equatable, Sendable {
         id: UUID = UUID(),
         name: String,
         notes: String? = nil,
+        kind: RoutineKind = .standard,
+        viceID: UUID? = nil,
         activeWeekdays: [RoutineWeekday] = [],
         items: [RoutineItem],
         stepLinks: [RoutineStepLink] = [],
@@ -167,6 +176,8 @@ nonisolated struct Routine: Identifiable, Equatable, Sendable {
         self.id = id
         self.name = Self.cleanedName(from: name) ?? name.trimmingCharacters(in: .whitespacesAndNewlines)
         self.notes = MyTask.cleanedOptionalText(from: notes)
+        self.kind = kind
+        self.viceID = kind == .viceLinked ? viceID : nil
         self.activeWeekdays = Self.cleanedWeekdays(activeWeekdays)
         self.items = Self.cleanedItems(items)
         self.stepLinks = Self.cleanedStepLinks(stepLinks, validStepIDs: Set(self.items.map(\.id)))
@@ -198,6 +209,10 @@ nonisolated struct Routine: Identifiable, Equatable, Sendable {
     }
 
     func isActive(on date: Date, calendar: Calendar = .current) -> Bool {
+        guard kind == .standard else {
+            return false
+        }
+
         guard isArchived == false else {
             return false
         }
@@ -283,6 +298,38 @@ nonisolated struct Routine: Identifiable, Equatable, Sendable {
 
                 return leftLink.id.uuidString < rightLink.id.uuidString
             }
+    }
+}
+
+nonisolated struct ViceRoutineUnlock: Identifiable, Equatable, Hashable, Sendable {
+    let id: UUID
+    let viceID: UUID
+    let routineID: UUID
+    let completedAt: Date
+    var expiresAt: Date
+    let createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        viceID: UUID,
+        routineID: UUID,
+        completedAt: Date,
+        expiresAt: Date,
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil
+    ) {
+        self.id = id
+        self.viceID = viceID
+        self.routineID = routineID
+        self.completedAt = completedAt
+        self.expiresAt = max(expiresAt, completedAt)
+        self.createdAt = createdAt ?? completedAt
+        self.updatedAt = updatedAt ?? completedAt
+    }
+
+    func isActive(at now: Date) -> Bool {
+        now <= expiresAt
     }
 }
 

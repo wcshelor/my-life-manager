@@ -6,6 +6,7 @@ final class ViceRecord {
     var id: UUID = UUID()
     var name: String = ""
     var unitLabel: String = ""
+    var linkedRoutineID: UUID?
     var createdAt: Date = Date.distantPast
     var updatedAt: Date = Date.distantPast
     var isArchived: Bool = false
@@ -19,6 +20,7 @@ final class ViceRecord {
             id: id,
             name: name,
             unitLabel: unitLabel,
+            linkedRoutineID: linkedRoutineID,
             createdAt: createdAt,
             updatedAt: updatedAt,
             isArchived: isArchived
@@ -29,6 +31,7 @@ final class ViceRecord {
         id = vice.id
         name = vice.name
         unitLabel = vice.unitLabel
+        linkedRoutineID = vice.linkedRoutineID
         createdAt = vice.createdAt
         updatedAt = vice.updatedAt
         isArchived = vice.isArchived

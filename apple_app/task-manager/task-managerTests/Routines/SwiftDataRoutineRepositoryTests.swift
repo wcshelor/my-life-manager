@@ -8,10 +8,13 @@ struct SwiftDataRoutineRepositoryTests {
         let repository = try makeRepository()
         let firstItem = RoutineItem(title: "Clear desk", position: 0)
         let secondItem = RoutineItem(title: "Set first task", position: 1)
+        let viceID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174299")!
         let routine = Routine(
             id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174222")!,
             name: "Evening Reset",
             notes: "Close the day",
+            kind: .viceLinked,
+            viceID: viceID,
             activeWeekdays: [.monday, .wednesday],
             items: [
                 firstItem,
@@ -38,6 +41,8 @@ struct SwiftDataRoutineRepositoryTests {
         try repository.saveRoutine(routine, replacingRoutineWithID: nil)
 
         #expect(try repository.routine(withID: routine.id) == routine)
+        #expect(try repository.routine(withID: routine.id)?.kind == .viceLinked)
+        #expect(try repository.routine(withID: routine.id)?.viceID == viceID)
     }
 
     @Test @MainActor func routineRepositoryPersistsEditedRoutineStepOrderAndQuickActions() throws {
@@ -204,6 +209,25 @@ struct SwiftDataRoutineRepositoryTests {
 
         #expect(fetchedLog?.completedItemIDs == [item.id])
         #expect(fetchedLog?.skippedItemIDs == [])
+    }
+
+    @Test @MainActor func routineRepositoryPersistsViceRoutineUnlock() throws {
+        let repository = try makeRepository()
+        let viceID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174710")!
+        let routineID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174711")!
+        let completedAt = Date(timeIntervalSince1970: 4_000)
+        let unlock = ViceRoutineUnlock(
+            viceID: viceID,
+            routineID: routineID,
+            completedAt: completedAt,
+            expiresAt: completedAt.addingTimeInterval(900)
+        )
+
+        try repository.saveViceRoutineUnlock(unlock, replacingUnlockWithID: nil)
+
+        #expect(try repository.fetchViceRoutineUnlock(for: viceID, routineID: routineID) == unlock)
+        try repository.deleteExpiredViceRoutineUnlocks(asOf: completedAt.addingTimeInterval(901))
+        #expect(try repository.fetchViceRoutineUnlock(for: viceID, routineID: routineID) == nil)
     }
 
     @MainActor

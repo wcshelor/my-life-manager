@@ -8,7 +8,6 @@ struct HomeWidgetModelTests {
 
         #expect(kinds == [
             .inbox,
-            .appUpdateReminder,
             .pinnedProjects,
             .calendarOverview,
             .debriefsPending,
@@ -187,14 +186,10 @@ struct HomeWidgetModelTests {
         #expect(registry.moduleWidget(for: .finance)?.kind == .budgetModule)
     }
 
-    @Test func appRefreshWidgetIsAvailable() {
+    @Test func appRefreshWidgetIsNoLongerSelectable() {
         let registry = HomeWidgetRegistry.standard
-        let descriptor = registry.descriptor(for: .appUpdateReminder)
 
-        #expect(descriptor?.module == .app)
-        #expect(descriptor?.displayName == "App Refresh")
-        #expect(descriptor?.defaultSize == .large)
-        #expect(descriptor?.isAvailable == true)
+        #expect(registry.descriptor(for: .appUpdateReminder) == nil)
     }
 
     @Test func vicesModuleWidgetIsAvailable() {
@@ -301,24 +296,26 @@ struct HomeWidgetModelTests {
         #expect(removedLegacyLayout.normalized().widgets.map(\.kind).contains(.vicesModule) == false)
     }
 
-    @Test func homeLayoutMigrationInjectsAppReminderUnlessExplicitlyRemoved() {
+    @Test func homeLayoutMigrationRemovesAppRefreshWidget() {
         let legacyLayout = HomeLayout(
-            version: 6,
+            version: 7,
             widgets: [
                 HomeWidgetInstance(kind: .inbox, size: .large, sortOrder: 0),
+                HomeWidgetInstance(kind: .appUpdateReminder, size: .large, sortOrder: 1),
             ]
         )
         let removedLegacyLayout = HomeLayout(
-            version: 6,
+            version: 7,
             widgets: [
                 HomeWidgetInstance(kind: .inbox, size: .large, sortOrder: 0),
+                HomeWidgetInstance(kind: .appUpdateReminder, size: .large, sortOrder: 1),
             ],
             removedWidgets: [
                 HomeWidgetInstance(kind: .appUpdateReminder, size: .large, sortOrder: 0),
             ]
         )
 
-        #expect(legacyLayout.normalized().widgets.map(\.kind).contains(.appUpdateReminder))
+        #expect(legacyLayout.normalized().widgets.map(\.kind).contains(.appUpdateReminder) == false)
         #expect(removedLegacyLayout.normalized().widgets.map(\.kind).contains(.appUpdateReminder) == false)
     }
 

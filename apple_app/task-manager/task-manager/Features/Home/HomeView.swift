@@ -85,6 +85,7 @@ struct HomeView: View {
     @State private var editingWidget: HomeWidgetInstance?
     @State private var homeActionFeedback: HomeActionFeedback?
     @State private var homeActionFeedbackDismissTask: Task<Void, Never>?
+    @State private var isShowingAppRefreshResetConfirmation = false
     private let widgetRendererRegistry = HomeWidgetRendererRegistry.standard
 
     private let taskRepository: any TaskRepository
@@ -313,6 +314,14 @@ struct HomeView: View {
                 viewModel.loadIfNeeded()
                 homeViewModel.load()
             }
+            .alert("Reset App Refresh Timer?", isPresented: $isShowingAppRefreshResetConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Reset", role: .destructive) {
+                    viewModel.resetAppUpdateReminder()
+                }
+            } message: {
+                Text("This starts the rebuild countdown over from today.")
+            }
         }
     }
 
@@ -450,8 +459,30 @@ struct HomeView: View {
             })
         case .vices:
             return AnyView(VicesView(
+                homeViewModel: viewModel,
+                routineRepository: routineRepository,
+                taskRepository: taskRepository,
+                projectRepository: projectRepository,
+                captureRepository: captureRepository,
+                projectItemRepository: projectItemRepository,
+                scheduledBlockRepository: scheduledBlockRepository,
+                settingsRepository: settingsRepository,
+                calendarPermissionProvider: calendarPermissionProvider,
+                calendarListingService: calendarListingService,
+                calendarReader: calendarReader,
+                calendarWriter: calendarWriter,
+                calendarReconciler: calendarReconciler,
+                calendarChangeObserver: calendarChangeObserver,
+                promiseRepository: promiseRepository,
+                shoppingRepository: shoppingRepository,
+                healthRepository: healthRepository,
+                musicPracticeRepository: musicPracticeRepository,
+                fitnessRepository: fitnessRepository,
+                peopleMemoryRepository: peopleMemoryRepository,
                 viceRepository: viceRepository,
-                debriefRepository: debriefRepository
+                calendarBlockFocusRepository: calendarBlockFocusRepository,
+                debriefRepository: debriefRepository,
+                financeRepository: financeRepository
             ) {
                 viewModel.load()
             })
@@ -986,10 +1017,16 @@ struct HomeView: View {
 
     private var welcomeBanner: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(viewModel.welcomeMessage)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
+            HStack(alignment: .top, spacing: 12) {
+                Text(viewModel.welcomeMessage)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+
+                Spacer(minLength: 0)
+
+                appRefreshBadge
+            }
 
             Text(Date().formatted(date: .complete, time: .omitted))
                 .font(.footnote)
@@ -1000,6 +1037,33 @@ struct HomeView: View {
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color.primary.opacity(0.04))
+        }
+    }
+
+    @ViewBuilder
+    private var appRefreshBadge: some View {
+        if let summary = viewModel.appUpdateReminderSummary {
+            Button {
+                isShowingAppRefreshResetConfirmation = true
+            } label: {
+                Text("\(summary.daysUntilSuggestedRefresh)")
+                    .font(.caption.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(summary.daysUntilSuggestedRefresh == 0 ? .red : .orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background {
+                        Capsule(style: .continuous)
+                            .fill(summary.daysUntilSuggestedRefresh == 0 ? Color.red.opacity(0.14) : Color.orange.opacity(0.14))
+                    }
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(summary.daysUntilSuggestedRefresh == 0 ? Color.red.opacity(0.25) : Color.orange.opacity(0.25), lineWidth: 1)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("App refresh countdown")
+            .accessibilityValue(summary.countdownLabel)
         }
     }
 
