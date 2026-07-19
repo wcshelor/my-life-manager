@@ -718,6 +718,27 @@ final class HomeExecutionViewModel: ObservableObject {
         }
     }
 
+    func completeViceRoutineUnlock(viceID: UUID, routineID: UUID) -> Bool {
+        let now = nowProvider()
+        let unlock = ViceRoutineUnlock(
+            viceID: viceID,
+            routineID: routineID,
+            completedAt: now,
+            expiresAt: now.addingTimeInterval(ViceRoutineGatePolicy.unlockWindow),
+            updatedAt: now
+        )
+
+        do {
+            let existingUnlock = try routineRepository.fetchViceRoutineUnlock(for: viceID, routineID: routineID)
+            try routineRepository.saveViceRoutineUnlock(unlock, replacingUnlockWithID: existingUnlock?.id)
+            load()
+            return true
+        } catch {
+            errorMessage = "Unable to unlock vice routine: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func resetAppUpdateReminder() {
         let now = nowProvider()
         appUpdateReminderSummary = appUpdateReminderTracker.reset(now: now, calendar: calendar)

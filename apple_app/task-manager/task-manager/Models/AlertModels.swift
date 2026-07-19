@@ -140,7 +140,7 @@ nonisolated enum AlertRecurrence: Equatable, Codable, Sendable {
             ]
         case .weekdays(let weekdays):
             return weekdays.map { weekday in
-                DateComponents(weekday: weekday.rawValue, hour: hour, minute: minute)
+                DateComponents(hour: hour, minute: minute, weekday: weekday.rawValue)
             }
         }
     }
@@ -400,7 +400,7 @@ nonisolated struct AlertTemplate: Identifiable, Equatable, Codable, Sendable {
 
     func notificationContext(snoozeCount: Int = 0) -> AlertNotificationContext {
         let presentation = notificationPresentation
-        AlertNotificationContext(
+        return AlertNotificationContext(
             templateID: id,
             notificationTitle: presentation.title,
             notificationBody: presentation.body,

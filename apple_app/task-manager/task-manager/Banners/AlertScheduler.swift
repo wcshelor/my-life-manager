@@ -58,7 +58,12 @@ final class NoopAlertNotificationCenter: AlertNotificationCenter {
 final class AlertScheduler {
     private let notificationCenter: any AlertNotificationCenter
 
-    init(notificationCenter: any AlertNotificationCenter = LiveAlertNotificationCenter()) {
+    init() {
+        self.notificationCenter = LiveAlertNotificationCenter()
+        self.notificationCenter.setNotificationCategories(Self.notificationCategories)
+    }
+
+    init(notificationCenter: any AlertNotificationCenter) {
         self.notificationCenter = notificationCenter
         self.notificationCenter.setNotificationCategories(Self.notificationCategories)
     }

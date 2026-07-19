@@ -295,12 +295,7 @@ struct VicesView: View {
                         calendarBlockFocusRepository: calendarBlockFocusRepository,
                         debriefRepository: debriefRepository,
                         financeRepository: financeRepository,
-                        routineID: state.routineID,
-                        sessionKind: .viceGate(viceID: state.viceID, onComplete: {
-                            viewModel.load()
-                            homeViewModel.load()
-                            onChange()
-                        })
+                        routineID: state.routineID
                     )
                 }
             }
@@ -395,6 +390,7 @@ struct VicesView: View {
         }
     }
 
+    @ViewBuilder
     private func existingRoutinePicker(for vice: Vice) -> some View {
         let availableRoutines = viewModel.routines.filter { $0.kind == .standard && $0.isArchived == false }
 

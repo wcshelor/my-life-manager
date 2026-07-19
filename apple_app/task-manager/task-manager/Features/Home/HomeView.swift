@@ -102,6 +102,7 @@ struct HomeView: View {
     private let calendarReconciler: any CalendarReconciling
     private let calendarChangeObserver: any CalendarChangeObserving
     private let promiseRepository: any PromiseRepository
+    private let routineRepository: any RoutineRepository
     private let shoppingRepository: any ShoppingRepository
     private let healthRepository: any HealthRepository
     private let musicPracticeRepository: any MusicPracticeRepository
@@ -154,6 +155,7 @@ struct HomeView: View {
         self.calendarReconciler = calendarReconciler
         self.calendarChangeObserver = calendarChangeObserver
         self.promiseRepository = promiseRepository
+        self.routineRepository = routineRepository
         self.shoppingRepository = shoppingRepository
         self.healthRepository = healthRepository
         self.musicPracticeRepository = musicPracticeRepository

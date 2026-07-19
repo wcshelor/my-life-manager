@@ -1,0 +1,246 @@
+import Foundation
+import SwiftData
+import Testing
+@testable import task_manager
+
+struct SwiftDataRoutineRepositoryTests {
+    @Test @MainActor func routineRepositoryRoundTripsRoutine() throws {
+        let repository = try makeRepository()
+        let firstItem = RoutineItem(title: "Clear desk", position: 0)
+        let secondItem = RoutineItem(title: "Set first task", position: 1)
+        let viceID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174299")!
+        let routine = Routine(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174222")!,
+            name: "Evening Reset",
+            notes: "Close the day",
+            kind: .viceLinked,
+            viceID: viceID,
+            activeWeekdays: [.monday, .wednesday],
+            items: [
+                firstItem,
+                secondItem,
+            ],
+            stepLinks: [
+                RoutineStepLink(
+                    routineStepID: secondItem.id,
+                    kind: .pvtTest,
+                    displayOrder: 0
+                ),
+                RoutineStepLink(
+                    routineStepID: secondItem.id,
+                    kind: .moduleWidget,
+                    moduleWidgetKind: .shoppingModule,
+                    displayTitle: "Shopping",
+                    displayOrder: 1,
+                    selectedQuickActionIDs: ["openShopping", "quickAddShopping"]
+                )
+            ],
+            createdAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        try repository.saveRoutine(routine, replacingRoutineWithID: nil)
+
+        #expect(try repository.routine(withID: routine.id) == routine)
+        #expect(try repository.routine(withID: routine.id)?.kind == .viceLinked)
+        #expect(try repository.routine(withID: routine.id)?.viceID == viceID)
+    }
+
+    @Test @MainActor func routineRepositoryPersistsEditedRoutineStepOrderAndQuickActions() throws {
+        let repository = try makeRepository()
+        let firstItem = RoutineItem(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174222")!,
+            title: "Clear desk",
+            position: 0
+        )
+        let secondItem = RoutineItem(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174223")!,
+            title: "Set first task",
+            position: 1
+        )
+        let routine = Routine(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174224")!,
+            name: "Evening Reset",
+            items: [firstItem, secondItem],
+            stepLinks: [
+                RoutineStepLink(
+                    routineStepID: secondItem.id,
+                    kind: .moduleWidget,
+                    moduleWidgetKind: .shoppingModule,
+                    displayTitle: "Shopping",
+                    displayOrder: 0,
+                    selectedQuickActionIDs: ["openShopping", "quickAddShopping"]
+                )
+            ]
+        )
+        let editedRoutine = Routine(
+            id: routine.id,
+            name: "Evening Reset",
+            notes: "Close the day",
+            activeWeekdays: [.monday, .wednesday],
+            items: [
+                RoutineItem(id: secondItem.id, title: "Set first task", position: 0),
+                RoutineItem(id: firstItem.id, title: "Clear desk", position: 1),
+            ],
+            stepLinks: routine.stepLinks,
+            isArchived: false,
+            createdAt: routine.createdAt,
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        try repository.saveRoutine(routine, replacingRoutineWithID: nil)
+        try repository.saveRoutine(editedRoutine, replacingRoutineWithID: routine.id)
+
+        let reloaded = try #require(repository.routine(withID: routine.id))
+        #expect(reloaded.orderedItems.map(\.id) == [secondItem.id, firstItem.id])
+        #expect(reloaded.orderedStepLinks(for: secondItem.id).first?.selectedQuickActionIDs == ["openShopping", "quickAddShopping"])
+        #expect(reloaded == editedRoutine)
+    }
+
+    @Test @MainActor func routineRepositoryUpdatesWeekdaysInPlace() throws {
+        let repository = try makeRepository()
+        let item = RoutineItem(title: "Plan", position: 0)
+        let routine = Routine(
+            name: "Morning",
+            activeWeekdays: [.monday],
+            items: [item]
+        )
+        let editedRoutine = Routine(
+            id: routine.id,
+            name: routine.name,
+            notes: routine.notes,
+            activeWeekdays: [.tuesday, .thursday],
+            items: routine.items,
+            stepLinks: routine.stepLinks,
+            isArchived: routine.isArchived,
+            createdAt: routine.createdAt,
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        try repository.saveRoutine(routine, replacingRoutineWithID: nil)
+        try repository.saveRoutine(editedRoutine, replacingRoutineWithID: routine.id)
+
+        let reloaded = try #require(repository.routine(withID: routine.id))
+        #expect(reloaded.activeWeekdays == [.tuesday, .thursday])
+    }
+
+    @Test @MainActor func routineRepositoryLoadsLegacyStepLinkPayloadWithoutModuleWidgetKind() throws {
+        let container = try ModelContainerFactory.makeInMemoryContainer()
+        let repository = SwiftDataRoutineRepository(modelContainer: container)
+        let item = RoutineItem(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174050")!,
+            title: "Plan",
+            position: 0
+        )
+        let routine = Routine(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174051")!,
+            name: "Morning",
+            items: [item]
+        )
+        let record = RoutineRecord(routine: routine)
+        record.stepLinksData = try JSONEncoder().encode([
+            LegacyRoutineStepLink(
+                id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174052")!,
+                routineStepID: item.id,
+                kind: .pvtTest,
+                displayTitle: "PVT Test",
+                displayOrder: 0
+            ),
+        ])
+        container.mainContext.insert(record)
+        try container.mainContext.save()
+
+        let reloaded = try #require(repository.routine(withID: routine.id))
+        let link = try #require(reloaded.stepLinks.first)
+
+        #expect(link.kind == .pvtTest)
+        #expect(link.moduleWidgetKind == nil)
+    }
+
+    @Test @MainActor func routineRepositoryPersistsDailyCompletionLog() throws {
+        let repository = try makeRepository()
+        let item = RoutineItem(title: "Plan", position: 0)
+        let routine = Routine(name: "Morning", items: [item])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let day = Date(timeIntervalSince1970: 1_710_201_600)
+        let dayStart = calendar.startOfDay(for: day)
+        let log = RoutineCompletionLog(
+            routineID: routine.id,
+            date: dayStart,
+            completedItemIDs: [item.id],
+            skippedItemIDs: [UUID()]
+        )
+
+        try repository.saveRoutine(routine, replacingRoutineWithID: nil)
+        try repository.saveCompletionLog(log, replacingLogWithID: nil)
+
+        let fetchedLog = try repository.fetchCompletionLog(
+            for: routine.id,
+            on: day.addingTimeInterval(60 * 60),
+            calendar: calendar
+        )
+
+        #expect(fetchedLog == log)
+    }
+
+    @Test @MainActor func routineRepositoryDefaultsMissingSkippedStateToEmpty() throws {
+        let repository = try makeRepository()
+        let item = RoutineItem(title: "Plan", position: 0)
+        let routine = Routine(name: "Morning", items: [item])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let day = Date(timeIntervalSince1970: 1_710_201_600)
+        let dayStart = calendar.startOfDay(for: day)
+        let legacyLog = RoutineCompletionLog(
+            routineID: routine.id,
+            date: dayStart,
+            completedItemIDs: [item.id],
+            skippedItemIDs: []
+        )
+
+        try repository.saveRoutine(routine, replacingRoutineWithID: nil)
+        try repository.saveCompletionLog(legacyLog, replacingLogWithID: nil)
+
+        let fetchedLog = try repository.fetchCompletionLog(
+            for: routine.id,
+            on: day,
+            calendar: calendar
+        )
+
+        #expect(fetchedLog?.completedItemIDs == [item.id])
+        #expect(fetchedLog?.skippedItemIDs == [])
+    }
+
+    @Test @MainActor func routineRepositoryPersistsViceRoutineUnlock() throws {
+        let repository = try makeRepository()
+        let viceID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174710")!
+        let routineID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174711")!
+        let completedAt = Date(timeIntervalSince1970: 4_000)
+        let unlock = ViceRoutineUnlock(
+            viceID: viceID,
+            routineID: routineID,
+            completedAt: completedAt,
+            expiresAt: completedAt.addingTimeInterval(900)
+        )
+
+        try repository.saveViceRoutineUnlock(unlock, replacingUnlockWithID: nil)
+
+        #expect(try repository.fetchViceRoutineUnlock(for: viceID, routineID: routineID) == unlock)
+        try repository.deleteExpiredViceRoutineUnlocks(asOf: completedAt.addingTimeInterval(901))
+        #expect(try repository.fetchViceRoutineUnlock(for: viceID, routineID: routineID) == nil)
+    }
+
+    @MainActor
+    private func makeRepository() throws -> SwiftDataRoutineRepository {
+        let container = try ModelContainerFactory.makeInMemoryContainer()
+        return SwiftDataRoutineRepository(modelContainer: container)
+    }
+}
+
+private struct LegacyRoutineStepLink: Codable {
+    let id: UUID
+    let routineStepID: UUID
+    let kind: RoutineStepLinkKind
+    let displayTitle: String
+    let displayOrder: Int
+}
