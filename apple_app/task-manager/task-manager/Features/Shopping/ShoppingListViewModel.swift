@@ -88,13 +88,19 @@ final class ShoppingListViewModel: ObservableObject {
         filtered(historyItems, searchText: searchText)
     }
 
+    func availableListNames(searchText: String = "") -> [String] {
+        let items = filtered(activeItems, searchText: searchText)
+        let names = Set(items.map(\.listName).filter { $0.isEmpty == false })
+        return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     static func tripGroups(from items: [ShoppingItem]) -> [ShoppingTripGroup] {
-        let sortedItems = items.sortedForShoppingTrips()
-        let grouped = Dictionary(grouping: sortedItems, by: \.storeType)
+        let sortedItems = items.sortedForShoppingLists()
+        let grouped = Dictionary(grouping: sortedItems, by: \.listName)
 
         return grouped
-            .map { storeType, items in
-                ShoppingTripGroup(storeType: storeType, items: items)
+            .map { listName, items in
+                ShoppingTripGroup(listName: listName, items: items)
             }
             .sorted { leftGroup, rightGroup in
                 leftGroup.title.localizedCaseInsensitiveCompare(rightGroup.title) == .orderedAscending
@@ -123,10 +129,10 @@ final class ShoppingListViewModel: ObservableObject {
         return items.filter { item in
             [
                 item.title,
+                item.listName,
                 item.notes,
-                item.category,
-                item.storeType,
                 item.storeName,
+                item.quantity,
             ]
             .compactMap { $0?.localizedLowercase }
             .contains { $0.contains(cleanedSearchText.localizedLowercase) }

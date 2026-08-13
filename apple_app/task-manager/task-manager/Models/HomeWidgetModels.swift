@@ -508,26 +508,25 @@ nonisolated struct HomeLayout: Equatable, Sendable {
             HomeWidgetInstance(kind: .inbox, size: .large, sortOrder: 0),
             HomeWidgetInstance(kind: .pinnedProjects, size: .large, sortOrder: 1),
             HomeWidgetInstance(kind: .calendarOverview, size: .large, sortOrder: 2),
-            HomeWidgetInstance(kind: .debriefsPending, size: .large, sortOrder: 3),
-            HomeWidgetInstance(kind: .promises, size: .large, sortOrder: 4),
-            HomeWidgetInstance(kind: .routines, size: .large, sortOrder: 5),
-            HomeWidgetInstance(kind: .promiseHistory, size: .large, sortOrder: 6),
+            HomeWidgetInstance(kind: .promises, size: .large, sortOrder: 3),
+            HomeWidgetInstance(kind: .routines, size: .large, sortOrder: 4),
+            HomeWidgetInstance(kind: .promiseHistory, size: .large, sortOrder: 5),
             HomeWidgetInstance(
                 kind: .shoppingModule,
                 size: .small,
-                sortOrder: 7,
+                sortOrder: 6,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.shopping.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .healthModule,
                 size: .small,
-                sortOrder: 8,
+                sortOrder: 7,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.health.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .musicPracticeModule,
                 size: .small,
-                sortOrder: 9,
+                sortOrder: 8,
                 configuration: HomeWidgetConfiguration(
                     moduleID: HomeWidgetModule.musicPractice.rawValue,
                     selectedQuickActionIDs: ["startPractice", "currentPiece"]
@@ -536,19 +535,19 @@ nonisolated struct HomeLayout: Equatable, Sendable {
             HomeWidgetInstance(
                 kind: .fitnessModule,
                 size: .small,
-                sortOrder: 10,
+                sortOrder: 9,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.fitness.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .peopleMemoryModule,
                 size: .small,
-                sortOrder: 11,
+                sortOrder: 10,
                 configuration: HomeWidgetConfiguration(moduleID: HomeWidgetModule.peopleMemory.rawValue)
             ),
             HomeWidgetInstance(
                 kind: .vicesModule,
                 size: .small,
-                sortOrder: 12,
+                sortOrder: 11,
                 configuration: HomeWidgetConfiguration(
                     moduleID: HomeWidgetModule.vices.rawValue,
                     selectedQuickActionIDs: ["logHit", "activeSession"]
@@ -734,21 +733,6 @@ nonisolated enum HomeLayoutMigrator {
         }
 
         if version < 5 {
-            let hasDebriefs = migratedWidgets.contains { $0.kind == .debriefsPending }
-            let removedDebriefs = removedWidgets.contains { $0.kind == .debriefsPending }
-
-            if hasDebriefs == false, removedDebriefs == false {
-                migratedWidgets.append(
-                    HomeWidgetInstance(
-                        kind: .debriefsPending,
-                        size: .large,
-                        sortOrder: migratedWidgets.count
-                    )
-                )
-            }
-        }
-
-        if version < 6 {
             let hasVices = migratedWidgets.contains { $0.kind == .vicesModule }
             let removedVices = removedWidgets.contains { $0.kind == .vicesModule }
 
@@ -761,6 +745,10 @@ nonisolated enum HomeLayoutMigrator {
                     )
                 )
             }
+        }
+
+        if version < 6 {
+            migratedWidgets.removeAll { $0.kind == .debriefsPending }
         }
 
         if version < 8 {
@@ -921,7 +909,8 @@ nonisolated struct HomeWidgetRegistry: Equatable, Sendable {
                 module: .planner,
                 supportedSizes: [.small, .large],
                 defaultSize: .large,
-                defaultAction: .openDebriefs
+                defaultAction: .openDebriefs,
+                availability: .unavailable("Debriefs are temporarily deactivated while the rest of the app stays minimal.")
             ),
             HomeWidgetDescriptor(
                 kind: .projectsModule,

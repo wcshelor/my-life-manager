@@ -6,6 +6,7 @@ protocol AlertNotificationCenter: AnyObject {
     func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
     func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
     func add(_ request: UNNotificationRequest) async throws
+    func pendingNotificationRequests() async -> [UNNotificationRequest]
     func removePendingNotificationRequests(withIdentifiers identifiers: [String])
 }
 
@@ -29,6 +30,14 @@ final class LiveAlertNotificationCenter: AlertNotificationCenter {
         try await center.add(request)
     }
 
+    func pendingNotificationRequests() async -> [UNNotificationRequest] {
+        await withCheckedContinuation { continuation in
+            center.getPendingNotificationRequests { requests in
+                continuation.resume(returning: requests)
+            }
+        }
+    }
+
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
@@ -49,6 +58,10 @@ final class NoopAlertNotificationCenter: AlertNotificationCenter {
         _ = request
     }
 
+    func pendingNotificationRequests() async -> [UNNotificationRequest] {
+        []
+    }
+
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
         _ = identifiers
     }
@@ -57,14 +70,36 @@ final class NoopAlertNotificationCenter: AlertNotificationCenter {
 @MainActor
 final class AlertScheduler {
     private let notificationCenter: any AlertNotificationCenter
+    private let settingsRepository: (any SettingsRepository)?
+    private let calendarReader: (any CalendarReading)?
+    private let planner: AlertTriggerPlanner
+    private let calendar: Calendar
+    private let nowProvider: @Sendable () -> Date
 
     init() {
         self.notificationCenter = LiveAlertNotificationCenter()
+        self.settingsRepository = nil
+        self.calendarReader = nil
+        self.planner = AlertTriggerPlanner()
+        self.calendar = .current
+        self.nowProvider = Date.init
         self.notificationCenter.setNotificationCategories(Self.notificationCategories)
     }
 
-    init(notificationCenter: any AlertNotificationCenter) {
+    init(
+        notificationCenter: any AlertNotificationCenter,
+        settingsRepository: (any SettingsRepository)? = nil,
+        calendarReader: (any CalendarReading)? = nil,
+        planner: AlertTriggerPlanner = AlertTriggerPlanner(),
+        calendar: Calendar = .current,
+        nowProvider: @escaping @Sendable () -> Date = Date.init
+    ) {
         self.notificationCenter = notificationCenter
+        self.settingsRepository = settingsRepository
+        self.calendarReader = calendarReader
+        self.planner = planner
+        self.calendar = calendar
+        self.nowProvider = nowProvider
         self.notificationCenter.setNotificationCategories(Self.notificationCategories)
     }
 
@@ -78,24 +113,41 @@ final class AlertScheduler {
     }
 
     func schedule(_ template: AlertTemplate) async throws {
-        guard template.isEnabled else {
+        let preferences = currentNotificationPreferences()
+        guard template.isEnabled, preferences.notificationsEnabled else {
             try await cancel(templateID: template.id)
             return
         }
 
+        let now = nowProvider()
+        let pendingRequests = await notificationCenter.pendingNotificationRequests()
+        let scheduledCountByDay = Self.scheduledCountByDay(
+            from: pendingRequests.filter { $0.identifier.hasPrefix(template.baseNotificationIdentifier) == false },
+            calendar: calendar
+        )
+        let busyIntervals = await busyIntervals(
+            for: template,
+            preferences: preferences,
+            now: now
+        )
+        let plannedRequests = planner.plannedRequests(
+            for: template,
+            preferences: preferences,
+            now: now,
+            calendar: calendar,
+            busyIntervals: busyIntervals,
+            scheduledCountByDay: scheduledCountByDay
+        )
+
         try await cancel(templateID: template.id)
 
         let context = template.notificationContext()
-        for (identifier, components) in zip(template.recurringNotificationIdentifiers, template.trigger.calendarDateComponents) {
+        for plannedRequest in plannedRequests {
             let content = makeContent(from: context)
-            let trigger = UNCalendarNotificationTrigger(
-                dateMatching: components,
-                repeats: true
-            )
             let request = UNNotificationRequest(
-                identifier: identifier,
+                identifier: plannedRequest.identifier,
                 content: content,
-                trigger: trigger
+                trigger: plannedRequest.trigger
             )
             try await notificationCenter.add(request)
         }
@@ -106,7 +158,8 @@ final class AlertScheduler {
     }
 
     func cancel(templateID: UUID) async throws {
-        notificationCenter.removePendingNotificationRequests(withIdentifiers: Self.notificationIdentifiers(for: templateID))
+        let identifiers = await notificationIdentifiers(for: templateID)
+        notificationCenter.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
 
     func scheduleSnooze(from context: AlertNotificationContext) async throws {
@@ -171,7 +224,81 @@ final class AlertScheduler {
         ]
     }()
 
-    private static func notificationIdentifiers(for templateID: UUID) -> [String] {
+    private func notificationIdentifiers(for templateID: UUID) async -> [String] {
+        let pendingRequests = await notificationCenter.pendingNotificationRequests()
+        let pendingIdentifiers = pendingRequests
+            .map(\.identifier)
+            .filter { $0.hasPrefix("banner.\(templateID.uuidString)") }
+        return Array(Set(Self.legacyNotificationIdentifiers(for: templateID) + pendingIdentifiers)).sorted()
+    }
+
+    private func currentNotificationPreferences() -> AlertNotificationPreferences {
+        guard let settingsRepository else {
+            return .defaults
+        }
+
+        return (try? settingsRepository.loadSettings().notificationPreferences) ?? .defaults
+    }
+
+    private func busyIntervals(
+        for template: AlertTemplate,
+        preferences: AlertNotificationPreferences,
+        now: Date
+    ) async -> [DateInterval] {
+        guard preferences.avoidCalendarBusyPeriods,
+              let calendarReader,
+              let window = busyIntervalFetchWindow(for: template, now: now) else {
+            return []
+        }
+
+        do {
+            let events = try await calendarReader.fetchEvents(in: window)
+            return events.map(\.interval)
+        } catch {
+            return []
+        }
+    }
+
+    private func busyIntervalFetchWindow(
+        for template: AlertTemplate,
+        now: Date
+    ) -> DateInterval? {
+        switch template.trigger {
+        case .fixedTime:
+            let end = calendar.date(byAdding: .day, value: AlertTriggerPlanner.fixedTimeSchedulingDays + 1, to: now)
+                ?? now.addingTimeInterval(Double(AlertTriggerPlanner.fixedTimeSchedulingDays + 1) * 86_400)
+            return DateInterval(start: now, end: end)
+        case .oneShot(let trigger):
+            let start = min(now, trigger.date)
+            let end = max(now.addingTimeInterval(86_400), trigger.date.addingTimeInterval(86_400))
+            return DateInterval(start: start, end: end)
+        case .relative(let trigger):
+            let scheduledDate = trigger.scheduledDate
+            let start = min(now, scheduledDate)
+            let end = max(now.addingTimeInterval(86_400), scheduledDate.addingTimeInterval(86_400))
+            return DateInterval(start: start, end: end)
+        case .randomDailyWindow:
+            let end = calendar.date(byAdding: .day, value: AlertTriggerPlanner.randomWindowSchedulingDays + 1, to: now)
+                ?? now.addingTimeInterval(Double(AlertTriggerPlanner.randomWindowSchedulingDays + 1) * 86_400)
+            return DateInterval(start: now, end: end)
+        }
+    }
+
+    private static func scheduledCountByDay(
+        from requests: [UNNotificationRequest],
+        calendar: Calendar
+    ) -> [Date: Int] {
+        requests.reduce(into: [Date: Int]()) { counts, request in
+            guard let trigger = request.trigger as? UNCalendarNotificationTrigger,
+                  let scheduledDate = trigger.nextTriggerDate() else {
+                return
+            }
+
+            counts[calendar.startOfDay(for: scheduledDate), default: 0] += 1
+        }
+    }
+
+    private static func legacyNotificationIdentifiers(for templateID: UUID) -> [String] {
         let base = "banner.\(templateID.uuidString)"
         return [
             "\(base).daily",
@@ -182,6 +309,8 @@ final class AlertScheduler {
             "\(base).weekday.5",
             "\(base).weekday.6",
             "\(base).weekday.7",
+            "\(base).oneShot",
+            "\(base).relative",
             "\(base).snooze"
         ]
     }

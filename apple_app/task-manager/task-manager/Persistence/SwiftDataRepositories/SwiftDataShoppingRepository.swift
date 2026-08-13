@@ -15,10 +15,10 @@ final class SwiftDataShoppingRepository: ShoppingRepository {
         let items = try fetchAllRecords().map(\.item)
 
         if includeHistory {
-            return items.sortedForShoppingTrips()
+            return items.sortedForShoppingLists()
         }
 
-        return items.filter(\.isActive).sortedForShoppingTrips()
+        return items.filter(\.isActive).sortedForShoppingLists()
     }
 
     func fetchActiveShoppingItems() throws -> [ShoppingItem] {

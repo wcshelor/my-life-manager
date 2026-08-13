@@ -11,6 +11,16 @@ final class AppSettingsRecord {
     var writeCalendarTitle: String = ""
     var hiddenHomeWidgetKindsText: String = ""
     var minimumGapMinutes: Int = AppSettings.mvpDefault.minimumGapMinutes
+    var notificationsEnabled: Bool = AppSettings.mvpDefault.notificationsEnabled
+    var notificationQuietHoursEnabled: Bool = AppSettings.mvpDefault.notificationQuietHoursEnabled
+    var notificationQuietHoursStartHour: Int = AppSettings.mvpDefault.notificationQuietHoursStart.hour
+    var notificationQuietHoursStartMinute: Int = AppSettings.mvpDefault.notificationQuietHoursStart.minute
+    var notificationQuietHoursEndHour: Int = AppSettings.mvpDefault.notificationQuietHoursEnd.hour
+    var notificationQuietHoursEndMinute: Int = AppSettings.mvpDefault.notificationQuietHoursEnd.minute
+    var notificationMaxNudgesPerDay: Int = AppSettings.mvpDefault.notificationMaxNudgesPerDay
+    var notificationDefaultPrivacyModeRawValue: String = AppSettings.mvpDefault.notificationDefaultPrivacyMode.rawValue
+    var notificationDefaultUrgencyRawValue: String = AppSettings.mvpDefault.notificationDefaultUrgency.rawValue
+    var notificationAvoidCalendarBusyPeriods: Bool = AppSettings.mvpDefault.notificationAvoidCalendarBusyPeriods
     var defaultAssumedDurationMinutes: Int = AppSettings.mvpDefault.defaultAssumedDurationMinutes
     var plannerSuggestionCap: Int = AppSettings.mvpDefault.plannerSuggestionCap
 
@@ -35,6 +45,24 @@ final class AppSettingsRecord {
             writeCalendarTitle: writeCalendarTitle,
             hiddenHomeWidgetKinds: Self.decodeTitles(hiddenHomeWidgetKindsText),
             minimumGapMinutes: minimumGapMinutes,
+            notificationsEnabled: notificationsEnabled,
+            notificationQuietHoursEnabled: notificationQuietHoursEnabled,
+            notificationQuietHoursStart: AlertTimeOfDay(
+                hour: notificationQuietHoursStartHour,
+                minute: notificationQuietHoursStartMinute
+            ),
+            notificationQuietHoursEnd: AlertTimeOfDay(
+                hour: notificationQuietHoursEndHour,
+                minute: notificationQuietHoursEndMinute
+            ),
+            notificationMaxNudgesPerDay: notificationMaxNudgesPerDay,
+            notificationDefaultPrivacyMode: AlertPrivacyMode(
+                rawValue: notificationDefaultPrivacyModeRawValue
+            ) ?? .full,
+            notificationDefaultUrgency: AlertUrgency(
+                rawValue: notificationDefaultUrgencyRawValue
+            ) ?? .normal,
+            notificationAvoidCalendarBusyPeriods: notificationAvoidCalendarBusyPeriods,
             defaultAssumedDurationMinutes: defaultAssumedDurationMinutes,
             plannerSuggestionCap: plannerSuggestionCap
         )
@@ -46,6 +74,16 @@ final class AppSettingsRecord {
         writeCalendarTitle = settings.writeCalendarTitle
         hiddenHomeWidgetKindsText = Self.encodeTitles(settings.hiddenHomeWidgetKinds)
         minimumGapMinutes = settings.minimumGapMinutes
+        notificationsEnabled = settings.notificationsEnabled
+        notificationQuietHoursEnabled = settings.notificationQuietHoursEnabled
+        notificationQuietHoursStartHour = settings.notificationQuietHoursStart.hour
+        notificationQuietHoursStartMinute = settings.notificationQuietHoursStart.minute
+        notificationQuietHoursEndHour = settings.notificationQuietHoursEnd.hour
+        notificationQuietHoursEndMinute = settings.notificationQuietHoursEnd.minute
+        notificationMaxNudgesPerDay = settings.notificationMaxNudgesPerDay
+        notificationDefaultPrivacyModeRawValue = settings.notificationDefaultPrivacyMode.rawValue
+        notificationDefaultUrgencyRawValue = settings.notificationDefaultUrgency.rawValue
+        notificationAvoidCalendarBusyPeriods = settings.notificationAvoidCalendarBusyPeriods
         defaultAssumedDurationMinutes = settings.defaultAssumedDurationMinutes
         plannerSuggestionCap = settings.plannerSuggestionCap
     }

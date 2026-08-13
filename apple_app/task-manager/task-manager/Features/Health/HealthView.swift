@@ -945,7 +945,7 @@ private struct MealEntryDraft: Identifiable {
 
     init() {}
 
-    init(entry: MealEntry) {
+    nonisolated init(entry: MealEntry) {
         searchText = entry.foodName
         selectedFood = FoodCatalogItem(
             id: entry.foodCatalogItemID ?? UUID(),

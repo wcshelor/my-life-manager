@@ -254,7 +254,7 @@ struct HomeWidgetModelTests {
         #expect(removedLegacyLayout.normalized().widgets.map(\.kind).contains(.peopleMemoryModule) == false)
     }
 
-    @Test func homeLayoutMigrationInjectsDebriefsUnlessExplicitlyRemoved() {
+    @Test func homeLayoutMigrationRemovesDebriefsFromLegacyLayouts() {
         let legacyLayout = HomeLayout(
             version: 4,
             widgets: [
@@ -271,8 +271,16 @@ struct HomeWidgetModelTests {
             ]
         )
 
-        #expect(legacyLayout.normalized().widgets.map(\.kind).contains(.debriefsPending))
+        #expect(legacyLayout.normalized().widgets.map(\.kind).contains(.debriefsPending) == false)
         #expect(removedLegacyLayout.normalized().widgets.map(\.kind).contains(.debriefsPending) == false)
+    }
+
+    @Test func debriefsWidgetIsTemporarilyUnavailable() throws {
+        let registry = HomeWidgetRegistry.standard
+        let descriptor = try #require(registry.descriptor(for: .debriefsPending))
+
+        #expect(descriptor.isAvailable == false)
+        #expect(descriptor.availability.message?.contains("temporarily deactivated") == true)
     }
 
     @Test func homeLayoutMigrationInjectsVicesUnlessExplicitlyRemoved() {

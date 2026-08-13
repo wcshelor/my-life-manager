@@ -10,6 +10,8 @@ This repo is evolving from a task manager into a modular Life Assistant / person
 
 The product should feel like a practical personal secretary for daily planning, not a collection of disconnected trackers.
 
+Use `docs/README.md` for the fastest documentation map.
+
 Domain docs for implemented or active areas live in `docs/domains/`. `docs/domains/future-modules/` contains plan-only docs, scaffolds, and a few active work-in-progress docs that have not been moved yet.
 
 ## Current Implemented Modules
@@ -22,11 +24,17 @@ The implemented Swift app currently centers on:
 - Home widget hub
 - Promises
 - Routines
-- Shopping, as an active work in progress
+- Shopping
+- Finance
+- Banners
 - Health, as an active work in progress
 - Music Practice, as an active work in progress
 - Fitness, as an active work in progress
 - People Memory, as an active work in progress
+- Vices, as an active work in progress
+- Debriefs, as an active work in progress
+- Calendar Block Focus, as an active work in progress
+- Sync scaffolding
 
 Current foundations to preserve:
 
@@ -35,10 +43,11 @@ Current foundations to preserve:
 - The planner engine remains pure Swift/domain logic.
 - SwiftUI views should not become the source of business logic.
 - Existing Tasks and Planner / Calendar behavior should continue to work.
+- The current repo also has first-pass surfaces for Banners, Debriefs, Finance, Vices, and Calendar Block Focus, even when those areas are still evolving.
 
 ## Future / Incomplete Modules
 
-Likely future life domains include:
+Likely future life domains and open product gaps include:
 
 - Health section polish:
   - manual QA for the real-time PVT flow
@@ -53,11 +62,10 @@ Likely future life domains include:
   - optional task/planner links
 - Task evolution: richer project/task-group behavior, subtasks, recurrence, prerequisites, and sequences
 - Budgeting / purchase decision support
-- Vices Tracking
 - Journaling & Reflection
 - General life logs
 
-Home, Tasks, Projects, Planner, Promises, Routines, Shopping, Health, Music Practice, Fitness, and People Memory now have first-pass Swift implementations or active work-in-progress foundations. Health should still be treated as work in progress, especially the real-time PVT flow and cross-module surfacing. The remaining future modules are not implemented yet unless the README or feature-specific docs say otherwise.
+Home, Tasks, Projects, Planner, Promises, Routines, Shopping, Finance, Banners, Health, Music Practice, Fitness, People Memory, Vices, Debriefs, Calendar Block Focus, and Sync all have some mixture of first-pass Swift implementation, active work-in-progress foundations, or scaffolding. Health should still be treated as work in progress, especially the real-time PVT flow and cross-module surfacing. The remaining future modules are not implemented yet unless the README or feature-specific docs say otherwise.
 
 ## Product Spine
 

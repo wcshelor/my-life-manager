@@ -143,6 +143,12 @@ final class CaptureItemRecord {
     var updatedAt: Date = Date.distantPast
     var processedAt: Date?
     var archivedAt: Date?
+    var lastReviewedAt: Date?
+    var lastReviewActionRawValue: String?
+    var lastReviewedModuleIDRawValue: String?
+    var lastReviewedKindID: String?
+    var resolvedRecordType: String?
+    var resolvedRecordID: UUID?
     var convertedTaskID: UUID?
     var convertedProjectItemID: UUID?
 
@@ -161,6 +167,12 @@ final class CaptureItemRecord {
             updatedAt: updatedAt,
             processedAt: processedAt,
             archivedAt: archivedAt,
+            lastReviewedAt: lastReviewedAt,
+            lastReviewAction: lastReviewActionRawValue.flatMap(CaptureReviewAction.init(rawValue:)),
+            lastReviewedModuleID: lastReviewedModuleIDRawValue.flatMap(CaptureModuleID.init(rawValue:)),
+            lastReviewedKindID: lastReviewedKindID,
+            resolvedRecordType: resolvedRecordType,
+            resolvedRecordID: resolvedRecordID,
             convertedTaskID: convertedTaskID,
             convertedProjectItemID: convertedProjectItemID
         )
@@ -176,6 +188,12 @@ final class CaptureItemRecord {
         updatedAt = capture.updatedAt
         processedAt = capture.processedAt
         archivedAt = capture.archivedAt
+        lastReviewedAt = capture.lastReviewedAt
+        lastReviewActionRawValue = capture.lastReviewAction?.rawValue
+        lastReviewedModuleIDRawValue = capture.lastReviewedModuleID?.rawValue
+        lastReviewedKindID = capture.lastReviewedKindID
+        resolvedRecordType = capture.resolvedRecordType
+        resolvedRecordID = capture.resolvedRecordID
         convertedTaskID = capture.convertedTaskID
         convertedProjectItemID = capture.convertedProjectItemID
     }

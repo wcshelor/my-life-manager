@@ -18,6 +18,24 @@ private enum BannerRecurrenceMode: String, CaseIterable, Identifiable {
     }
 }
 
+private enum BannerScheduleMode: String, CaseIterable, Identifiable {
+    case fixedTime
+    case randomWindow
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .fixedTime:
+            return "Fixed Time"
+        case .randomWindow:
+            return "Random Window"
+        }
+    }
+}
+
 struct BannerTemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -28,7 +46,10 @@ struct BannerTemplateEditorView: View {
 
     @State private var title: String
     @State private var selectedRoutineID: UUID?
+    @State private var scheduleMode: BannerScheduleMode
     @State private var selectedTime: Date
+    @State private var randomWindowStart: Date
+    @State private var randomWindowEnd: Date
     @State private var recurrenceMode: BannerRecurrenceMode
     @State private var selectedWeekdays: Set<RoutineWeekday>
     @State private var urgency: AlertUrgency
@@ -47,10 +68,32 @@ struct BannerTemplateEditorView: View {
         self.routines = routines
         self.onSave = onSave
         _title = State(initialValue: template.title)
-        _selectedRoutineID = State(initialValue: template.target.routineID)
-        _selectedTime = State(initialValue: Self.makeDate(from: template.fixedTimeTrigger))
+        _selectedRoutineID = State(initialValue: template.routineID)
+        _scheduleMode = State(initialValue: template.randomDailyWindowTrigger == nil ? .fixedTime : .randomWindow)
+        _selectedTime = State(
+            initialValue: Self.makeDate(
+                from: template.fixedTimeTrigger?.timeOfDay
+                    ?? template.randomDailyWindowTrigger?.window.start
+            )
+        )
+        _randomWindowStart = State(
+            initialValue: Self.makeDate(
+                from: template.randomDailyWindowTrigger?.window.start ?? AlertTimeOfDay(hour: 9, minute: 0)
+            )
+        )
+        _randomWindowEnd = State(
+            initialValue: Self.makeDate(
+                from: template.randomDailyWindowTrigger?.window.end ?? AlertTimeOfDay(hour: 11, minute: 0)
+            )
+        )
         _recurrenceMode = State(initialValue: template.isDailyFixedTimeTrigger ? .daily : .weekdays)
-        _selectedWeekdays = State(initialValue: template.fixedTimeTrigger?.recurrence.weekdaysSet ?? [])
+        _selectedWeekdays = State(
+            initialValue: (
+                template.fixedTimeTrigger?.recurrence.weekdaysSet
+                    ?? template.randomDailyWindowTrigger?.recurrence.weekdaysSet
+                    ?? []
+            )
+        )
         _urgency = State(initialValue: template.urgency)
         _privacyMode = State(initialValue: template.privacyMode)
         _isEnabled = State(initialValue: template.isEnabled)
@@ -89,11 +132,32 @@ struct BannerTemplateEditorView: View {
                     }
 
                     Section("Schedule") {
-                        DatePicker(
-                            "Time",
-                            selection: $selectedTime,
-                            displayedComponents: [.hourAndMinute]
-                        )
+                        Picker("Mode", selection: $scheduleMode) {
+                            ForEach(BannerScheduleMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        if scheduleMode == .fixedTime {
+                            DatePicker(
+                                "Time",
+                                selection: $selectedTime,
+                                displayedComponents: [.hourAndMinute]
+                            )
+                        } else {
+                            DatePicker(
+                                "Window Start",
+                                selection: $randomWindowStart,
+                                displayedComponents: [.hourAndMinute]
+                            )
+
+                            DatePicker(
+                                "Window End",
+                                selection: $randomWindowEnd,
+                                displayedComponents: [.hourAndMinute]
+                            )
+                        }
 
                         Picker("Repeat", selection: $recurrenceMode) {
                             ForEach(BannerRecurrenceMode.allCases) { mode in
@@ -196,14 +260,34 @@ struct BannerTemplateEditorView: View {
     }
 
     private func buildTemplate() -> AlertTemplate {
-        let routineID = selectedRoutineID ?? template.routineID
-        let trigger = AlertTrigger.fixedTime(
-            AlertFixedTimeTrigger(
-                hour: Self.hour(from: selectedTime),
-                minute: Self.minute(from: selectedTime),
-                recurrence: recurrenceMode == .daily ? .daily : .weekdays(selectedWeekdays.sortedByRawValue)
+        let routineID = selectedRoutineID ?? template.routineID ?? UUID()
+        let recurrence: AlertRecurrence = recurrenceMode == .daily ? .daily : .weekdays(selectedWeekdays.sortedByRawValue)
+        let trigger: AlertTrigger
+
+        switch scheduleMode {
+        case .fixedTime:
+            trigger = .fixedTime(
+                AlertFixedTimeTrigger(
+                    hour: Self.hour(from: selectedTime),
+                    minute: Self.minute(from: selectedTime),
+                    recurrence: recurrence
+                )
             )
-        )
+        case .randomWindow:
+            trigger = .randomDailyWindow(
+                AlertRandomDailyWindowTrigger(
+                    start: AlertTimeOfDay(
+                        hour: Self.hour(from: randomWindowStart),
+                        minute: Self.minute(from: randomWindowStart)
+                    ),
+                    end: AlertTimeOfDay(
+                        hour: Self.hour(from: randomWindowEnd),
+                        minute: Self.minute(from: randomWindowEnd)
+                    ),
+                    recurrence: recurrence
+                )
+            )
+        }
 
         return AlertTemplate(
             id: template.id,
@@ -220,15 +304,15 @@ struct BannerTemplateEditorView: View {
         )
     }
 
-    private static func makeDate(from trigger: AlertFixedTimeTrigger?) -> Date {
-        let trigger = trigger ?? AlertFixedTimeTrigger(hour: 7, minute: 30)
+    private static func makeDate(from timeOfDay: AlertTimeOfDay?) -> Date {
+        let timeOfDay = timeOfDay ?? AlertTimeOfDay(hour: 7, minute: 30)
         var components = DateComponents()
         components.calendar = Calendar(identifier: .gregorian)
         components.year = 2000
         components.month = 1
         components.day = 1
-        components.hour = trigger.hour
-        components.minute = trigger.minute
+        components.hour = timeOfDay.hour
+        components.minute = timeOfDay.minute
         return components.date ?? .now
     }
 
@@ -246,8 +330,13 @@ private extension AlertTemplate {
         trigger.fixedTime
     }
 
+    var randomDailyWindowTrigger: AlertRandomDailyWindowTrigger? {
+        trigger.randomDailyWindow
+    }
+
     var isDailyFixedTimeTrigger: Bool {
-        fixedTimeTrigger?.isDaily ?? true
+        fixedTimeTrigger?.isDaily
+            ?? (randomDailyWindowTrigger?.recurrence.normalized == .daily)
     }
 }
 

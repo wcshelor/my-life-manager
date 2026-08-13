@@ -4,16 +4,17 @@
 
 Shopping helps the user collect things they intend to buy, group them into practical trips, and separate necessary purchases from vague wants.
 
-This should be more structured than ordinary tasks because shopping items have categories, store types, urgency, and possible links to meals, household routines, budgeting, and wish-list decisions.
+This should be lighter than ordinary tasks because the main workflow is fast capture into a named shopping list, with only a few optional details when they are actually helpful.
 
 ## Product Shape
 
 The first version supports:
 
-- quick item capture
-- category labels
-- store or store-type labels
-- urgency / necessity labels
+- quick item capture into a shopping list
+- list selection and list creation
+- optional price
+- optional store
+- optional notes and quantity
 - bought / skipped / archived status
 - grouped shopping trip suggestions
 
@@ -31,8 +32,8 @@ Shopping list and wish list should be related but distinct.
 Shopping list:
 
 - items the user intends to buy
-- includes necessities and near-term practical purchases
 - optimized around trips and errands
+- organized by named shopping lists
 
 Wish list:
 
@@ -47,14 +48,12 @@ Some wish-list items may eventually move into the shopping list after a waiting 
 A `ShoppingItem` might include:
 
 - title
-- notes
-- category
-- store type
-- specific store, optional
-- urgency: need soon, next trip, someday
-- necessity: necessary, useful, optional
-- status
+- shopping list name
 - estimated cost
+- notes
+- specific store, optional
+- quantity, optional
+- status
 - source domain, such as nutrition, routine, task, or manual
 - created date
 - purchased date
@@ -105,7 +104,7 @@ Persistence/
 
 Features/Shopping/
   Shopping list
-  Trip grouping
+  List grouping
   Wish list
 ```
 
@@ -129,7 +128,7 @@ Start with shopping items. Add wish-list decision support as a second step if ne
 
 First-pass Shopping is implemented in Swift with:
 
-- `ShoppingItem`, `ShoppingTripGroup`, urgency, necessity, and status models
+- `ShoppingItem`, `ShoppingTripGroup`, and status models
 - SwiftData persistence through `ShoppingItemRecord` and `SwiftDataShoppingRepository`
 - `ShoppingListViewModel`
 - Home module access and a dedicated Shopping Quick Add widget

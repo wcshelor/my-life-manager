@@ -17,6 +17,17 @@ struct AlertModelTests {
         #expect(trigger.timeSummary == "11:00 PM")
     }
 
+    @Test func randomDailyWindowNormalizesEqualStartAndEndToNonZeroWindow() {
+        let window = AlertDailyWindow(
+            start: AlertTimeOfDay(hour: 9, minute: 0),
+            end: AlertTimeOfDay(hour: 9, minute: 0)
+        )
+
+        #expect(window.start == AlertTimeOfDay(hour: 9, minute: 0))
+        #expect(window.end == AlertTimeOfDay(hour: 10, minute: 0))
+        #expect(window.summary.contains("9:00 AM"))
+    }
+
     @Test func urgencyMappingUsesActiveAndTimeSensitiveLevels() {
         #expect(AlertUrgency.normal.interruptionLevel == .active)
         #expect(AlertUrgency.timeSensitive.interruptionLevel == .timeSensitive)
@@ -55,6 +66,13 @@ struct AlertModelTests {
         )
 
         #expect(template.actions.map(\.kind) == [.primaryRoutineAction, .snooze])
-        #expect(template.actions.map(\.displayTitle) == ["Open Routine", "Snooze"])
+        #expect(template.actions.map(\.displayTitle) == ["Open", "Snooze"])
+    }
+
+    @Test func startRoutineTargetsResolveToOpenRoutineForRouting() {
+        let routineID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174102")!
+
+        #expect(AlertTarget.startRoutine(routineID).resolvedRoutingTarget == .openRoutine(routineID))
+        #expect(AlertTarget.checkInPromise(nil).resolvedRoutingTarget == .checkInPromise(nil))
     }
 }

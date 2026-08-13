@@ -2,17 +2,143 @@ import Foundation
 import UserNotifications
 
 private enum AlertModelText {
-    static func cleaned(_ text: String) -> String {
+    nonisolated static func cleaned(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func cleanedOptional(_ text: String?) -> String? {
+    nonisolated static func cleanedOptional(_ text: String?) -> String? {
         guard let text else {
             return nil
         }
 
         let cleaned = cleaned(text)
         return cleaned.isEmpty ? nil : cleaned
+    }
+}
+
+nonisolated struct AlertTimeOfDay: Equatable, Codable, Sendable {
+    var hour: Int
+    var minute: Int
+
+    init(hour: Int, minute: Int) {
+        self.hour = Self.normalizedHour(hour)
+        self.minute = Self.normalizedMinute(minute)
+    }
+
+    init(date: Date, calendar: Calendar = .current) {
+        self.init(
+            hour: calendar.component(.hour, from: date),
+            minute: calendar.component(.minute, from: date)
+        )
+    }
+
+    var minutesSinceMidnight: Int {
+        hour * 60 + minute
+    }
+
+    var timeSummary: String {
+        let displayHour = hour % 12 == 0 ? 12 : hour % 12
+        let period = hour < 12 ? "AM" : "PM"
+        return "\(displayHour):\(String(format: "%02d", minute)) \(period)"
+    }
+
+    func shifted(by minutes: Int) -> AlertTimeOfDay {
+        let totalMinutes = ((minutesSinceMidnight + minutes) % (24 * 60) + (24 * 60)) % (24 * 60)
+        return AlertTimeOfDay(hour: totalMinutes / 60, minute: totalMinutes % 60)
+    }
+
+    private static func normalizedHour(_ hour: Int) -> Int {
+        min(max(hour, 0), 23)
+    }
+
+    private static func normalizedMinute(_ minute: Int) -> Int {
+        min(max(minute, 0), 59)
+    }
+}
+
+nonisolated struct AlertDailyWindow: Equatable, Codable, Sendable {
+    var start: AlertTimeOfDay
+    var end: AlertTimeOfDay
+
+    init(start: AlertTimeOfDay, end: AlertTimeOfDay) {
+        self.start = start
+        self.end = start == end ? start.shifted(by: 60) : end
+    }
+
+    var spansMidnight: Bool {
+        end.minutesSinceMidnight <= start.minutesSinceMidnight
+    }
+
+    var summary: String {
+        "\(start.timeSummary) to \(end.timeSummary)"
+    }
+
+    func contains(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let minutes = calendar.component(.hour, from: date) * 60
+            + calendar.component(.minute, from: date)
+
+        if spansMidnight {
+            return minutes >= start.minutesSinceMidnight || minutes < end.minutesSinceMidnight
+        }
+
+        return minutes >= start.minutesSinceMidnight && minutes < end.minutesSinceMidnight
+    }
+
+    func interval(startingOn day: Date, calendar: Calendar = .current) -> DateInterval {
+        let dayStart = calendar.startOfDay(for: day)
+        let startDate = calendar.date(
+            byAdding: .minute,
+            value: start.minutesSinceMidnight,
+            to: dayStart
+        ) ?? dayStart
+        let endBase = spansMidnight
+            ? (calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400))
+            : dayStart
+        let endDate = calendar.date(
+            byAdding: .minute,
+            value: end.minutesSinceMidnight,
+            to: endBase
+        ) ?? endBase
+
+        return DateInterval(start: startDate, end: max(startDate.addingTimeInterval(60), endDate))
+    }
+
+    func nextWindowEnd(after date: Date, calendar: Calendar = .current) -> Date? {
+        let dayStart = calendar.startOfDay(for: date)
+        let minutes = calendar.component(.hour, from: date) * 60
+            + calendar.component(.minute, from: date)
+
+        if spansMidnight {
+            if minutes >= start.minutesSinceMidnight {
+                let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart)
+                    ?? dayStart.addingTimeInterval(86_400)
+                return calendar.date(
+                    byAdding: .minute,
+                    value: end.minutesSinceMidnight,
+                    to: nextDay
+                ) ?? nextDay
+            }
+
+            if minutes < end.minutesSinceMidnight {
+                return calendar.date(
+                    byAdding: .minute,
+                    value: end.minutesSinceMidnight,
+                    to: dayStart
+                ) ?? dayStart
+            }
+
+            return nil
+        }
+
+        guard minutes >= start.minutesSinceMidnight && minutes < end.minutesSinceMidnight else {
+            return nil
+        }
+
+        return calendar.date(
+            byAdding: .minute,
+            value: end.minutesSinceMidnight,
+            to: dayStart
+        ) ?? dayStart
     }
 }
 
@@ -62,7 +188,7 @@ nonisolated enum AlertActionKind: String, CaseIterable, Codable, Sendable {
     var displayTitle: String {
         switch self {
         case .primaryRoutineAction:
-            return "Open Routine"
+            return "Open"
         case .snooze:
             return "Snooze"
         }
@@ -161,6 +287,10 @@ nonisolated struct AlertFixedTimeTrigger: Equatable, Codable, Sendable {
         self.recurrence = recurrence.normalized
     }
 
+    var timeOfDay: AlertTimeOfDay {
+        AlertTimeOfDay(hour: hour, minute: minute)
+    }
+
     var isDaily: Bool {
         recurrence.normalized == .daily
     }
@@ -192,11 +322,104 @@ nonisolated struct AlertFixedTimeTrigger: Equatable, Codable, Sendable {
     }
 }
 
+nonisolated struct AlertRandomDailyWindowTrigger: Equatable, Codable, Sendable {
+    var window: AlertDailyWindow
+    var recurrence: AlertRecurrence
+
+    init(
+        start: AlertTimeOfDay,
+        end: AlertTimeOfDay,
+        recurrence: AlertRecurrence = .daily
+    ) {
+        self.window = AlertDailyWindow(start: start, end: end)
+        self.recurrence = recurrence.normalized
+    }
+
+    init(
+        window: AlertDailyWindow,
+        recurrence: AlertRecurrence = .daily
+    ) {
+        self.window = window
+        self.recurrence = recurrence.normalized
+    }
+
+    var scheduleSummary: String {
+        "\(recurrence.displaySummary) between \(window.summary)"
+    }
+}
+
+nonisolated struct AlertOneShotTrigger: Equatable, Codable, Sendable {
+    var date: Date
+
+    init(date: Date) {
+        self.date = date
+    }
+
+    var scheduleSummary: String {
+        "Once at \(date.formatted(date: .abbreviated, time: .shortened))"
+    }
+}
+
+nonisolated struct AlertRelativeTimeTrigger: Equatable, Codable, Sendable {
+    var referenceDate: Date
+    var offsetMinutes: Int
+
+    init(referenceDate: Date, offsetMinutes: Int) {
+        self.referenceDate = referenceDate
+        self.offsetMinutes = offsetMinutes
+    }
+
+    var scheduledDate: Date {
+        referenceDate.addingTimeInterval(TimeInterval(offsetMinutes * 60))
+    }
+
+    var scheduleSummary: String {
+        let absoluteMinutes = abs(offsetMinutes)
+        let offsetSummary: String
+        if absoluteMinutes % 60 == 0 {
+            let hours = absoluteMinutes / 60
+            offsetSummary = "\(hours) hr\(hours == 1 ? "" : "s")"
+        } else {
+            offsetSummary = "\(absoluteMinutes) min"
+        }
+
+        let relation = offsetMinutes >= 0 ? "after" : "before"
+        return "\(offsetSummary) \(relation) \(referenceDate.formatted(date: .abbreviated, time: .shortened))"
+    }
+}
+
 nonisolated enum AlertTrigger: Equatable, Codable, Sendable {
     case fixedTime(AlertFixedTimeTrigger)
+    case randomDailyWindow(AlertRandomDailyWindowTrigger)
+    case oneShot(AlertOneShotTrigger)
+    case relative(AlertRelativeTimeTrigger)
 
     var fixedTime: AlertFixedTimeTrigger? {
         guard case let .fixedTime(trigger) = self else {
+            return nil
+        }
+
+        return trigger
+    }
+
+    var randomDailyWindow: AlertRandomDailyWindowTrigger? {
+        guard case let .randomDailyWindow(trigger) = self else {
+            return nil
+        }
+
+        return trigger
+    }
+
+    var oneShot: AlertOneShotTrigger? {
+        guard case let .oneShot(trigger) = self else {
+            return nil
+        }
+
+        return trigger
+    }
+
+    var relativeTime: AlertRelativeTimeTrigger? {
+        guard case let .relative(trigger) = self else {
             return nil
         }
 
@@ -207,13 +430,23 @@ nonisolated enum AlertTrigger: Equatable, Codable, Sendable {
         switch self {
         case .fixedTime(let trigger):
             return trigger.scheduleSummary
+        case .randomDailyWindow(let trigger):
+            return trigger.scheduleSummary
+        case .oneShot(let trigger):
+            return trigger.scheduleSummary
+        case .relative(let trigger):
+            return trigger.scheduleSummary
         }
     }
 
-    var calendarDateComponents: [DateComponents] {
+    var fixedTimeCalendarDateComponents: [DateComponents] {
         switch self {
         case .fixedTime(let trigger):
             return trigger.calendarDateComponents
+        case .randomDailyWindow,
+             .oneShot,
+             .relative:
+            return []
         }
     }
 
@@ -221,6 +454,12 @@ nonisolated enum AlertTrigger: Equatable, Codable, Sendable {
         switch self {
         case .fixedTime(let trigger):
             return .fixedTime(trigger)
+        case .randomDailyWindow(let trigger):
+            return .randomDailyWindow(trigger)
+        case .oneShot(let trigger):
+            return .oneShot(trigger)
+        case .relative(let trigger):
+            return .relative(trigger)
         }
     }
 }
@@ -228,13 +467,28 @@ nonisolated enum AlertTrigger: Equatable, Codable, Sendable {
 nonisolated enum AlertTarget: Equatable, Codable, Sendable {
     case openRoutine(UUID)
     case startRoutine(UUID)
+    case openTasks
+    case openPromises
+    case checkInPromise(UUID?)
+    case openDebriefs
+    case openPeopleMemory
+    case openPeopleStudy
+    case openHealth
 
-    var routineID: UUID {
+    var routineID: UUID? {
         switch self {
         case .openRoutine(let routineID):
             return routineID
         case .startRoutine(let routineID):
             return routineID
+        case .openTasks,
+             .openPromises,
+             .checkInPromise,
+             .openDebriefs,
+             .openPeopleMemory,
+             .openPeopleStudy,
+             .openHealth:
+            return nil
         }
     }
 
@@ -244,17 +498,37 @@ nonisolated enum AlertTarget: Equatable, Codable, Sendable {
             return "Open Routine"
         case .startRoutine:
             return "Start Routine"
+        case .openTasks:
+            return "Open Tasks"
+        case .openPromises:
+            return "Open Promises"
+        case .checkInPromise:
+            return "Check In Promise"
+        case .openDebriefs:
+            return "Open Debriefs"
+        case .openPeopleMemory:
+            return "Open People"
+        case .openPeopleStudy:
+            return "Study People"
+        case .openHealth:
+            return "Open Health"
         }
     }
 
-    var mvpRoutingTarget: AlertTarget {
+    var resolvedRoutingTarget: AlertTarget {
         switch self {
         case .openRoutine:
             return self
         case .startRoutine(let routineID):
-            // TODO: If a dedicated routine-session start path becomes cleanly available,
-            // route there instead of treating startRoutine as an openRoutine alias.
             return .openRoutine(routineID)
+        case .openTasks,
+             .openPromises,
+             .checkInPromise,
+             .openDebriefs,
+             .openPeopleMemory,
+             .openPeopleStudy,
+             .openHealth:
+            return self
         }
     }
 }
@@ -378,7 +652,7 @@ nonisolated struct AlertTemplate: Identifiable, Equatable, Codable, Sendable {
         self.updatedAt = updatedAt ?? createdAt
     }
 
-    var routineID: UUID {
+    var routineID: UUID? {
         target.routineID
     }
 
@@ -404,7 +678,7 @@ nonisolated struct AlertTemplate: Identifiable, Equatable, Codable, Sendable {
             templateID: id,
             notificationTitle: presentation.title,
             notificationBody: presentation.body,
-            target: target.mvpRoutingTarget,
+            target: target.resolvedRoutingTarget,
             urgency: urgency,
             snoozeMinutes: snoozeMinutes,
             maxSnoozes: maxSnoozes,
@@ -428,6 +702,30 @@ nonisolated struct AlertTemplate: Identifiable, Equatable, Codable, Sendable {
         "\(baseNotificationIdentifier).snooze"
     }
 
+    var oneShotNotificationIdentifier: String {
+        "\(baseNotificationIdentifier).oneShot"
+    }
+
+    var relativeNotificationIdentifier: String {
+        "\(baseNotificationIdentifier).relative"
+    }
+
+    func randomWindowNotificationIdentifier(for day: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: day)
+        let year = components.year ?? 0
+        let month = components.month ?? 0
+        let day = components.day ?? 0
+        return "\(baseNotificationIdentifier).random.\(year)-\(month)-\(day)"
+    }
+
+    func fixedTimeNotificationIdentifier(for day: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: day)
+        let year = components.year ?? 0
+        let month = components.month ?? 0
+        let day = components.day ?? 0
+        return "\(baseNotificationIdentifier).fixed.\(year)-\(month)-\(day)"
+    }
+
     var recurringNotificationIdentifiers: [String] {
         switch trigger {
         case .fixedTime(let fixedTime):
@@ -437,6 +735,10 @@ nonisolated struct AlertTemplate: Identifiable, Equatable, Codable, Sendable {
             case .weekdays(let weekdays):
                 return weekdays.map { weekdayNotificationIdentifier(for: $0) }
             }
+        case .randomDailyWindow,
+             .oneShot,
+             .relative:
+            return []
         }
     }
 

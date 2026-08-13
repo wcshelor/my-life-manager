@@ -19,13 +19,15 @@ struct BannersView: View {
     init(
         alertRepository: any AlertRepository,
         alertScheduler: AlertScheduler,
-        routineRepository: any RoutineRepository
+        routineRepository: any RoutineRepository,
+        settingsRepository: any SettingsRepository
     ) {
         _viewModel = StateObject(
             wrappedValue: BannersViewModel(
                 alertRepository: alertRepository,
                 alertScheduler: alertScheduler,
-                routineRepository: routineRepository
+                routineRepository: routineRepository,
+                settingsRepository: settingsRepository
             )
         )
     }
@@ -45,7 +47,7 @@ struct BannersView: View {
                     ContentUnavailableView(
                         "No Banners Yet",
                         systemImage: "bell.badge",
-                        description: Text("Create a Banner to open a Routine at a fixed recurring time.")
+                        description: Text("Create a Banner to open a Routine at a fixed time or inside a random window.")
                     )
                 }
             } else {
@@ -102,11 +104,13 @@ struct BannersView: View {
                 presentedEditor = BannerEditorDraft(template: template, originalID: template.id)
             } label: {
                 VStack(alignment: .leading, spacing: 5) {
+                    let routineName = template.routineID.map { viewModel.routineName(for: $0) } ?? "Missing Routine"
+
                     Text(template.title)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
 
-                    Text("\(viewModel.routineName(for: template.routineID)) · \(template.trigger.scheduleSummary)")
+                    Text("\(routineName) · \(template.trigger.scheduleSummary)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 

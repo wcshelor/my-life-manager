@@ -6,6 +6,8 @@ This document freezes the intended product behavior while the Swift app catches 
 
 Status: work in progress. Treat this as directional product context, not a guarantee that every described behavior is finished in the current app.
 
+Current repo note: this is a frozen snapshot from April 5, 2026. For the current module inventory and repo map, read `README.md` and `docs/README.md`.
+
 ## Product Responsibilities
 
 The app has four distinct responsibilities:

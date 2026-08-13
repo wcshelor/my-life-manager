@@ -5,21 +5,24 @@ import Testing
 
 @MainActor
 struct AlertSchedulerTests {
-    @Test func scheduleFixedTimeRequestUsesCalendarTrigger() async throws {
+    @Test func scheduleFixedTimeRequestSchedulesFiniteCalendarRequests() async throws {
         let center = FakeNotificationCenter()
-        let scheduler = AlertScheduler(notificationCenter: center)
+        let now = makeDate(year: 2026, month: 8, day: 6, hour: 6, minute: 0)
+        let scheduler = AlertScheduler(
+            notificationCenter: center,
+            nowProvider: { now }
+        )
         let template = makeTemplate()
 
         try await scheduler.schedule(template)
 
-        #expect(center.removedIdentifiers.contains(template.dailyNotificationIdentifier))
-        #expect(center.addedRequests.count == 1)
+        #expect(center.addedRequests.count == AlertTriggerPlanner.fixedTimeSchedulingDays)
 
         let request = try #require(center.addedRequests.first)
         let trigger = try #require(request.trigger as? UNCalendarNotificationTrigger)
 
-        #expect(request.identifier == template.dailyNotificationIdentifier)
-        #expect(trigger.repeats)
+        #expect(request.identifier == template.fixedTimeNotificationIdentifier(for: now))
+        #expect(trigger.repeats == false)
         #expect(trigger.dateComponents.hour == 7)
         #expect(trigger.dateComponents.minute == 30)
         #expect(request.content.categoryIdentifier == NotificationCategoryIdentifier.fixedTimePrimaryAndSnooze)
@@ -46,7 +49,59 @@ struct AlertSchedulerTests {
         #expect(center.removedIdentifiers.contains(template.weekdayNotificationIdentifier(for: .monday)))
         #expect(center.removedIdentifiers.contains(template.weekdayNotificationIdentifier(for: .wednesday)))
         #expect(center.removedIdentifiers.contains(template.snoozeNotificationIdentifier))
-        #expect(center.removedIdentifiers.count == 9)
+        #expect(center.removedIdentifiers.count == 11)
+    }
+
+    @Test func oneShotTriggerUsesNonRepeatingCalendarRequest() async throws {
+        let center = FakeNotificationCenter()
+        let scheduler = AlertScheduler(notificationCenter: center)
+        let template = AlertTemplate(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174302")!,
+            title: "One Shot",
+            target: .openHealth,
+            trigger: .oneShot(
+                AlertOneShotTrigger(
+                    date: Date(timeIntervalSince1970: 2_000_000)
+                )
+            ),
+            urgency: .normal,
+            privacyMode: .full
+        )
+
+        try await scheduler.schedule(template)
+
+        let request = try #require(center.addedRequests.first)
+        let trigger = try #require(request.trigger as? UNCalendarNotificationTrigger)
+        #expect(trigger.repeats == false)
+        #expect(request.identifier == template.oneShotNotificationIdentifier)
+    }
+
+    @Test func randomDailyWindowTriggerSchedulesFiniteOneShotRequests() async throws {
+        let center = FakeNotificationCenter()
+        let scheduler = AlertScheduler(
+            notificationCenter: center,
+            nowProvider: { Date(timeIntervalSince1970: 1_000_000) }
+        )
+        let template = AlertTemplate(
+            id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174303")!,
+            title: "Random Window",
+            target: .openPeopleStudy,
+            trigger: .randomDailyWindow(
+                AlertRandomDailyWindowTrigger(
+                    start: AlertTimeOfDay(hour: 9, minute: 0),
+                    end: AlertTimeOfDay(hour: 11, minute: 0)
+                )
+            ),
+            urgency: .normal,
+            privacyMode: .full
+        )
+
+        try await scheduler.schedule(template)
+
+        #expect(center.addedRequests.count == AlertTriggerPlanner.randomWindowSchedulingDays)
+        #expect(center.addedRequests.allSatisfy {
+            $0.identifier.contains(".random.")
+        })
     }
 
     @Test func snoozeRequestGenerationUsesUNTimeIntervalNotificationTriggerAndStopsAtMaxCount() async throws {
@@ -98,6 +153,10 @@ private final class FakeNotificationCenter: AlertNotificationCenter {
         addedRequests.append(request)
     }
 
+    func pendingNotificationRequests() async -> [UNNotificationRequest] {
+        addedRequests.filter { removedIdentifiers.contains($0.identifier) == false }
+    }
+
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
         removedIdentifiers.append(contentsOf: identifiers)
     }
@@ -130,4 +189,22 @@ private func makeTemplate(
         createdAt: Date(timeIntervalSince1970: 1_000),
         updatedAt: Date(timeIntervalSince1970: 1_000)
     )
+}
+
+private func makeDate(
+    year: Int,
+    month: Int,
+    day: Int,
+    hour: Int,
+    minute: Int
+) -> Date {
+    var components = DateComponents()
+    components.calendar = Calendar(identifier: .gregorian)
+    components.timeZone = TimeZone(secondsFromGMT: 0)
+    components.year = year
+    components.month = month
+    components.day = day
+    components.hour = hour
+    components.minute = minute
+    return components.date ?? Date(timeIntervalSince1970: 0)
 }

@@ -321,7 +321,7 @@ private struct PeopleStudySortKey: Comparable {
     let date: Date
     let id: UUID
 
-    static func < (lhs: PeopleStudySortKey, rhs: PeopleStudySortKey) -> Bool {
+    nonisolated static func < (lhs: PeopleStudySortKey, rhs: PeopleStudySortKey) -> Bool {
         if lhs.bucket != rhs.bucket {
             return lhs.bucket < rhs.bucket
         }

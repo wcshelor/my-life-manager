@@ -174,6 +174,7 @@ struct TaskListView: View {
                     case .addTask:
                         TaskQuickAddView(
                             initialFormData: newTaskDraft,
+                            projects: projects,
                             taskGroups: taskGroups,
                             reservedTaskIDs: reservedTaskIDs
                         ) { task in

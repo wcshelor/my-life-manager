@@ -113,4 +113,4 @@ The repository is intentionally simple. View models do recent-session grouping a
 
 ## Status
 
-Implemented work in progress. Fitness has its own Home module entry, SwiftData persistence, workout editing, exercise detail/history, route reuse, and shared create/edit session logging, but still needs broader manual QA and product polish.
+Implemented work in progress. Fitness has its own Home module entry, SwiftData persistence, workout editing, exercise detail/history, route reuse, draft quick-log seeding from the most recent session, and shared create/edit session logging, but still needs broader manual QA and product polish.

@@ -13,6 +13,7 @@ struct task_managerApp: App {
     private let appEnvironment: AppEnvironment
     private let appNotificationCoordinator: AppNotificationCoordinator
 
+    @MainActor
     init() {
         do {
             appEnvironment = AppEnvironment(container: try AppContainer.makeLive())

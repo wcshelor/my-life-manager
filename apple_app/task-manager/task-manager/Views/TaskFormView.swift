@@ -155,7 +155,11 @@ struct TaskFormView: View {
                 }
 
                 Section("Attributes") {
-                    if projects.isEmpty == false {
+                    if projects.isEmpty {
+                        Text("Create a project first to save this task.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
                         Picker("Project", selection: $formData.projectID) {
                             Text("None").tag(nil as UUID?)
 

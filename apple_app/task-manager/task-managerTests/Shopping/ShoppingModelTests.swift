@@ -7,20 +7,18 @@ struct ShoppingModelTests {
         let createdAt = Date(timeIntervalSince1970: 1_000)
         let item = ShoppingItem(
             title: "  Milk  ",
+            listName: "  Groceries  ",
+            price: Decimal(string: "3.49"),
             notes: "  Two bottles  ",
-            category: "  Groceries  ",
-            storeType: "  Grocery  ",
             storeName: "  Rewe  ",
             createdAt: createdAt
         )
 
         #expect(item.title == "Milk")
+        #expect(item.listName == "Groceries")
+        #expect(item.price == Decimal(string: "3.49"))
         #expect(item.notes == "Two bottles")
-        #expect(item.category == "Groceries")
-        #expect(item.storeType == "Grocery")
         #expect(item.storeName == "Rewe")
-        #expect(item.urgency == .nextTrip)
-        #expect(item.necessity == .necessary)
         #expect(item.status == .needed)
         #expect(item.completedAt == nil)
         #expect(item.updatedAt == createdAt)
@@ -53,7 +51,6 @@ struct ShoppingModelTests {
     @Test func missingStoreTypeUsesUnspecifiedTripGroup() {
         let item = ShoppingItem(title: "Batteries")
 
-        #expect(item.tripGroupName == "Unspecified")
+        #expect(item.tripGroupName == "General")
     }
 }
-

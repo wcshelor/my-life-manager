@@ -8,12 +8,10 @@ struct SwiftDataShoppingRepositoryTests {
         let item = ShoppingItem(
             id: UUID(uuidString: "123E4567-E89B-12D3-A456-426614174111")!,
             title: "Milk",
+            listName: "Groceries",
+            price: Decimal(string: "3.49"),
             notes: "Two bottles",
-            category: "Groceries",
-            storeType: "Grocery",
             storeName: "Rewe",
-            urgency: .needSoon,
-            necessity: .necessary,
             createdAt: Date(timeIntervalSince1970: 1_000)
         )
 
@@ -58,23 +56,17 @@ struct SwiftDataShoppingRepositoryTests {
         let base = Date(timeIntervalSince1970: 1_000)
         let laterOptional = ShoppingItem(
             title: "Chocolate",
-            storeType: "Grocery",
-            urgency: .needSoon,
-            necessity: .optional,
+            listName: "Grocery",
             createdAt: base.addingTimeInterval(10)
         )
         let soonerNecessary = ShoppingItem(
             title: "Bread",
-            storeType: "Grocery",
-            urgency: .needSoon,
-            necessity: .necessary,
+            listName: "Grocery",
             createdAt: base.addingTimeInterval(20)
         )
         let drugstore = ShoppingItem(
             title: "Soap",
-            storeType: "Drugstore",
-            urgency: .someday,
-            necessity: .useful,
+            listName: "Drugstore",
             createdAt: base
         )
 
@@ -105,4 +97,3 @@ struct SwiftDataShoppingRepositoryTests {
         return SwiftDataShoppingRepository(modelContainer: container)
     }
 }
-

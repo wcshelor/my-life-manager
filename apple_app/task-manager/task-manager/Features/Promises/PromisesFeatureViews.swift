@@ -1,8 +1,16 @@
 import SwiftUI
 
+nonisolated enum PromiseModuleInitialRoute: Equatable, Sendable {
+    case newPromise
+    case checkInDuePromise(UUID?)
+}
+
 struct PromiseModuleView: View {
     @ObservedObject var viewModel: HomeExecutionViewModel
     @State private var presentedSheet: SheetDestination?
+    @State private var hasAppliedInitialRoute = false
+
+    private let initialRoute: PromiseModuleInitialRoute?
 
     private enum SheetDestination: Identifiable {
         case promiseForm
@@ -18,6 +26,14 @@ struct PromiseModuleView: View {
         }
     }
 
+    init(
+        viewModel: HomeExecutionViewModel,
+        initialRoute: PromiseModuleInitialRoute? = nil
+    ) {
+        self.viewModel = viewModel
+        self.initialRoute = initialRoute
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -30,6 +46,12 @@ struct PromiseModuleView: View {
             .padding()
         }
         .navigationTitle("Promises")
+        .task {
+            applyInitialRouteIfNeeded()
+        }
+        .onChange(of: viewModel.duePromises.map(\.id)) { _, _ in
+            applyInitialRouteIfNeeded()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -69,6 +91,29 @@ struct PromiseModuleView: View {
                     )
                 }
             }
+        }
+    }
+
+    private func applyInitialRouteIfNeeded() {
+        guard hasAppliedInitialRoute == false, let initialRoute else {
+            return
+        }
+
+        switch initialRoute {
+        case .newPromise:
+            presentedSheet = .promiseForm
+            hasAppliedInitialRoute = true
+        case .checkInDuePromise(let promiseID):
+            let promise = promiseID.flatMap { requestedID in
+                viewModel.duePromises.first { $0.id == requestedID }
+            } ?? viewModel.duePromises.first
+
+            guard let promise else {
+                return
+            }
+
+            presentedSheet = .promiseCheckIn(promise)
+            hasAppliedInitialRoute = true
         }
     }
 

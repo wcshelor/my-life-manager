@@ -2,7 +2,14 @@
 
 The SwiftUI Apple app in `apple_app/task-manager/` is the only active implementation surface.
 
-Use `README.md`, `docs/life_assistant_vision.md`, and `docs/product_direction.md` as expected-behavior references for each session.
+Use `README.md`, `docs/README.md`, `docs/life_assistant_vision.md`, and `docs/product_direction.md` as expected-behavior references for each session.
+
+Use this workflow as the default decision tree:
+
+- verify the smallest deterministic surface first
+- add only the area-specific checks that match the files you touched
+- use simulator-based work only when a runtime UI path truly needs it
+- keep docs and test guidance in sync when the repo changes shape
 
 ## 1. Baseline Automated Checks
 
@@ -17,9 +24,13 @@ bash scripts/check_swift_typecheck_complexity.sh
 
 These are the default checks for coding sessions because they do not require booting a simulator runtime.
 
+If the host reports no available iPhone Simulator runtimes, stop retrying simulator commands. Keep the session on build-only confidence and note the environment limit instead of looping on the same failure.
+
 Use a writable temporary `DerivedData` location in sandboxed or locked-down environments. The default Xcode path under `~/Library/Developer/Xcode/DerivedData` can fail before app code is evaluated with errors such as `Couldn't create workspace arena folder`, `Unable to write to info file`, or `Operation not permitted`.
 
 The compiler complexity guard runs the same simulator `build-for-testing` path with Swift frontend timing warnings enabled. It fails if a view body or expression starts taking long enough to type-check that it is likely to turn into Xcode's "unable to type-check this expression in reasonable time" error.
+
+If your change is docs-only, a full build is usually unnecessary. Prefer a targeted file read or repo-tree check unless the docs reference behavior that you also changed in code.
 
 Current automated confidence covers:
 
@@ -27,12 +38,14 @@ Current automated confidence covers:
 - planner engine ranking, gap handling, and selected-slot behavior
 - planner view-model acceptance, rejection, lifecycle, and reconciliation behavior
 - EventKit adapter behavior with mocked stores
-- Home layout/execution view-model behavior, including capture conversion and module summaries
+- Home layout/execution and inbox-review view-model behavior, including capture routing and module summaries
 - Home widget model resolution and landing-target routing behavior
-- capture capability routing and candidate generation for Tasks, Shopping, and Music Practice
+- manifest-driven capture intake routing, validation, and persistence for Tasks, Shopping, Music Practice, and People Memory
 - promise models, repositories, and Home aggregation behavior
 - routine models, repositories, daily completion behavior, and vice-linked unlock persistence
 - Banners model validation, SwiftData repository round trips, scheduler behavior, and notification-route handling
+- Finance model validation, SwiftData repository round trips, summary behavior, and dashboard state
+- Calendar Block Focus repository round trips and focus-context matching behavior
 - Shopping models, SwiftData repository round trips, view-model behavior, and inbox conversion
 - Debrief model validation, queue filtering, queue-review composer state, and SwiftData round trips
 - work-in-progress Health model calculations, nutrition catalog search/custom-food persistence, SwiftData repository round trips, Health view-model summaries, and meal debrief reminder timing
@@ -45,13 +58,14 @@ Current automated confidence covers:
 
 Use the baseline battery above, then add the narrowest matching targeted checks for the area you changed.
 
-### Home / Capture / Widgets
+### Home / Inbox / Widgets
 
 - update or inspect `apple_app/task-manager/task-managerTests/Home/HomeExecutionViewModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Home/HomeLayoutViewModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Models/HomeWidgetModelTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Models/CaptureCapabilityTests.swift`
-- manually verify Home widget summaries or Capture Review flows when the UI changed
+- run `bash scripts/check_swift_typecheck_complexity.sh` when touching a large `Features/Home/HomeView.swift` or `Features/InboxReview/InboxReviewView.swift` body
+- manually verify Home widget summaries or Inbox Review flows when the UI changed
 
 ### Routines
 
@@ -66,7 +80,7 @@ Use the baseline battery above, then add the narrowest matching targeted checks 
 - update or inspect `apple_app/task-manager/task-managerTests/Persistence/SwiftDataAlertRepositoryTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Banners/AlertSchedulerTests.swift`
 - update or inspect `apple_app/task-manager/task-managerTests/Banners/AlertRouteCoordinatorTests.swift`
-- manually verify Banner creation, editing, enable/disable, delete, first-save permission onboarding, and notification-to-routine routing when the UI changed
+- manually verify Banner creation, fixed-time versus random-window scheduling, notification settings defaults, enable/disable, delete, permission onboarding, and notification-route handling when the UI changed
 
 ### Debriefs / Block Focus
 
@@ -109,9 +123,22 @@ Use the baseline battery above, then add the narrowest matching targeted checks 
 - update or inspect `apple_app/task-manager/task-managerTests/Health/SwiftDataHealthRepositoryTests.swift`
 - manually verify custom-food creation, food search suggestions, and multi-entry meal logging only when the Health Nutrition UI changes
 
+### Finance
+
+- update or inspect `apple_app/task-manager/task-managerTests/Finance/FinanceModelTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Finance/FinanceSummaryServiceTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Finance/SwiftDataFinanceRepositoryTests.swift`
+- manually verify income/expense entry, category selection, month balance, and history refresh when the Finance UI changes
+
+### Calendar Block Focus
+
+- update or inspect `apple_app/task-manager/task-managerTests/Calendar/CalendarProjectMatcherTests.swift`
+- update or inspect `apple_app/task-manager/task-managerTests/Persistence/SwiftDataCalendarBlockFocusRepositoryTests.swift`
+- manually verify Block Focus capture and the task-selection-to-debrief handoff when the Block Focus UI changes
+
 ## 2. Optional Simulator Swift Runs
 
-Use these only when simulator behavior is required for the change and CoreSimulator is available. Use `-only-testing` when narrowing scope, for example:
+Use these only when simulator behavior is required for the change and CoreSimulator is available. If runtimes are unavailable, skip this section. Use `-only-testing` when narrowing scope, for example:
 
 ```bash
 xcodebuild -project apple_app/task-manager/task-manager.xcodeproj -scheme task-manager -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.3.1' -derivedDataPath /tmp/task-manager-derived-data test -only-testing:task-managerTests/PlannerViewModelTests
@@ -148,7 +175,7 @@ That helper:
 - runs an iPhone simulator build using a temporary DerivedData path
 - runs the Swift compiler complexity guard
 - creates a timestamped note in `docs/test_sessions/`
-- prints the next recommended Swift, EventKit, simulator, Home, Capture Review, Debrief, Vices, Finance, and routine validation steps
+- prints the next recommended Swift, EventKit, simulator, Home, Capture Review, Debrief, Block Focus, Vices, Finance, Banners, Shopping, Health, Fitness, Music Practice, People Memory, and routine validation steps
 
 Run simulator tests in the helper only when intentionally enabled:
 
@@ -209,13 +236,14 @@ Validate:
 
 - open Banners from Settings
 - create a Banner for a Morning Routine or Night Routine
-- edit the recurring time and selected weekdays
+- edit the scheduling mode, time or window, and selected weekdays
 - switch between normal and Time Sensitive urgency
 - switch between full and title-only privacy
+- change the app-wide Notifications settings for quiet hours, daily nudge cap, and busy-calendar avoidance
 - enable and disable a Banner and confirm notifications reschedule or cancel
 - delete a Banner and confirm the pending notifications disappear
 - confirm notification permission onboarding appears on the first save or first enable
-- tap the notification and confirm it opens the intended routine
+- tap the notification and confirm it opens the intended destination
 
 ### Tasks
 
@@ -224,7 +252,7 @@ Validate:
 - task create, edit, delete
 - search, sort, and grouping
 - quick complete, reopen, and archive flows
-- capture review still routes task-like captures through the shared task form when relevant
+- capture review still routes task, project-idea, and project-note sticky notes through the shared task/project forms when relevant
 - iPhone quick add and narrow-width task review if a simulator or device is available
 
 ### Capture Review / Inbox
@@ -232,10 +260,14 @@ Validate:
 Validate:
 
 - create or load a raw capture
-- confirm candidate groups appear for Tasks, Shopping, and Music Practice when applicable
+- confirm module tiles appear for Tasks, Shopping, Music Practice, and People Memory when applicable
+- confirm the Tasks destination can switch between Task, Project Idea, and Project Note when the note still belongs in the task/project domain
+- apply a template or reveal an optional customization group when the change touched manifest-driven fields
 - convert one capture into a task
 - convert one capture into a shopping item
 - convert one capture into a practice piece
+- convert one capture into a people-memory entry when that path changed
+- confirm skip or archive moves the sticky note into review history and Reopen returns it to the active queue
 - confirm processed captures leave the active review queue
 
 ### Calendar / Planner And EventKit

@@ -41,7 +41,7 @@ For project-linked Work Blocks the loop now also includes selected tasks and tas
 
 ## Home Relationship
 
-Home surfaces pending Debriefs as a lightweight widget/card.
+Home previously surfaced pending Debriefs as a lightweight widget/card. That entry point is currently parked, but the underlying code paths remain available.
 
 The Home surface shows:
 
@@ -50,6 +50,10 @@ The Home surface shows:
 - a shortcut into the Debrief flow
 
 Full Debrief workflows stay in a sheet/detail flow, not inside the Home widget.
+
+## Current Product State
+
+Debriefs are intentionally deactivated on the main Home surface for now so the app can stay more minimal while the underlying model, repository, and review code remain usable for future reactivation.
 
 ## Capture / Inbox Relationship
 

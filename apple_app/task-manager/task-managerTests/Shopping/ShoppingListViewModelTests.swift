@@ -17,7 +17,7 @@ struct ShoppingListViewModelTests {
 
         #expect(repository.items.first?.title == "Milk")
         #expect(repository.items.first?.createdAt == now)
-        #expect(viewModel.activeTripGroups().map(\.title) == ["Unspecified"])
+        #expect(viewModel.activeTripGroups().map(\.title) == ["General"])
     }
 
     @Test func viewModelMovesBoughtItemsIntoHistory() {
@@ -39,8 +39,8 @@ struct ShoppingListViewModelTests {
 
     @Test func viewModelFiltersTripGroupsBySearchText() {
         let repository = FakeShoppingRepository(items: [
-            ShoppingItem(title: "Milk", storeType: "Grocery"),
-            ShoppingItem(title: "Ibuprofen", storeType: "Drugstore"),
+            ShoppingItem(title: "Milk", listName: "Grocery"),
+            ShoppingItem(title: "Ibuprofen", listName: "Drugstore"),
         ])
         let viewModel = ShoppingListViewModel(shoppingRepository: repository)
 
@@ -79,10 +79,10 @@ private final class FakeShoppingRepository: ShoppingRepository {
         }
 
         if includeHistory {
-            return items.sortedForShoppingTrips()
+            return items.sortedForShoppingLists()
         }
 
-        return items.filter(\.isActive).sortedForShoppingTrips()
+        return items.filter(\.isActive).sortedForShoppingLists()
     }
 
     func fetchActiveShoppingItems() throws -> [ShoppingItem] {

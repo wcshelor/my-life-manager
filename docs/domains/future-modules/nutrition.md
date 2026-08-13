@@ -16,7 +16,20 @@ The core flow should be quick meal capture:
 - how it felt or affected energy
 - optional notes
 
-Avoid requiring detailed macros, calories, or food databases in the first pass.
+Avoid requiring a strict calorie-counting workflow or a heavyweight food database in the first pass. The current app already stores per-serving nutrient snapshots and a small searchable food catalog, so future work should stay focused on useful capture and review rather than exhaustive logging.
+
+## Current Implementation
+
+Health's Nutrition surface already has first-pass Swift support:
+
+- multi-entry meal logs
+- per-serving nutrient snapshots
+- starter searchable food catalog items
+- persisted custom foods
+- meal-derived debrief reminder timing
+- lightweight quick-entry and history/delete flows
+
+The doc remains a product sketch for future nutrition UX, but it should be read alongside `docs/domains/future-modules/health.md` and `README.md` so the current code shape is not understated.
 
 ## Possible Log Fields
 
@@ -93,6 +106,6 @@ Start with structured meal logs. Add meal templates or meal planning only after 
 
 ## Status
 
-Active work in progress inside Health. The app now has a first-pass lightweight meal log with SwiftData persistence, quick entry, history/delete UI, and neutral trend summaries.
+Active work in progress inside Health. The app now has a first-pass lightweight meal log with SwiftData persistence, quick entry, history/delete UI, neutral trend summaries, and the nutrient snapshot / food-catalog plumbing described above.
 
 This is still intentionally not a calorie, macro, diet, or meal-planning system. Photos, templates, shopping integration, and richer review flows remain future work.

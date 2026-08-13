@@ -10,16 +10,21 @@ final class BannersViewModel: ObservableObject {
     private let alertRepository: any AlertRepository
     private let alertScheduler: AlertScheduler
     private let routineRepository: any RoutineRepository
+    private let settingsRepository: any SettingsRepository
+    private let templateFactory: RoutineAlertTemplateFactory
     private var hasLoaded = false
 
     init(
         alertRepository: any AlertRepository,
         alertScheduler: AlertScheduler,
-        routineRepository: any RoutineRepository
+        routineRepository: any RoutineRepository,
+        settingsRepository: any SettingsRepository
     ) {
         self.alertRepository = alertRepository
         self.alertScheduler = alertScheduler
         self.routineRepository = routineRepository
+        self.settingsRepository = settingsRepository
+        self.templateFactory = RoutineAlertTemplateFactory(settingsRepository: settingsRepository)
     }
 
     var canCreateBanner: Bool {
@@ -50,26 +55,7 @@ final class BannersViewModel: ObservableObject {
     }
 
     func makeNewTemplateDraft() -> AlertTemplate? {
-        guard let routine = routines.first else {
-            return nil
-        }
-
-        let defaultTime = defaultTriggerTime(for: routine)
-        let title = "\(routine.name) Banner"
-        return AlertTemplate(
-            title: title,
-            target: .openRoutine(routine.id),
-            trigger: .fixedTime(
-                AlertFixedTimeTrigger(
-                    hour: defaultTime.hour,
-                    minute: defaultTime.minute,
-                    recurrence: .daily
-                )
-            ),
-            urgency: .normal,
-            privacyMode: .full,
-            isEnabled: true
-        )
+        templateFactory.makeNewTemplateDraft(from: routines)
     }
 
     func routineName(for routineID: UUID) -> String {
@@ -82,14 +68,17 @@ final class BannersViewModel: ObservableObject {
             return false
         }
 
-        guard routines.contains(where: { $0.id == template.routineID }) else {
+        guard let routineID = template.routineID,
+              routines.contains(where: { $0.id == routineID }) else {
             errorMessage = "Select a valid Routine before saving this Banner."
             return false
         }
 
         let existingTemplate = try? alertRepository.template(withID: originalID ?? template.id)
+        let notificationsEnabled = (try? settingsRepository.loadSettings().notificationsEnabled) ?? true
 
-        if existingTemplate == nil || (existingTemplate?.isEnabled == false && template.isEnabled) {
+        if notificationsEnabled
+            && (existingTemplate == nil || (existingTemplate?.isEnabled == false && template.isEnabled)) {
             do {
                 _ = try await alertScheduler.requestNotificationAuthorization()
             } catch {
@@ -137,15 +126,5 @@ final class BannersViewModel: ObservableObject {
         } catch {
             errorMessage = "Unable to delete banner: \(error.localizedDescription)"
         }
-    }
-
-    private func defaultTriggerTime(for routine: Routine) -> (hour: Int, minute: Int) {
-        let lowercasedName = routine.name.lowercased()
-
-        if lowercasedName.contains("night") || lowercasedName.contains("evening") || lowercasedName.contains("bed") {
-            return (21, 0)
-        }
-
-        return (7, 30)
     }
 }

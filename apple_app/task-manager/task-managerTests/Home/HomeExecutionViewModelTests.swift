@@ -431,7 +431,7 @@ struct HomeExecutionViewModelTests {
         #expect(viewModel.pinnedProjectSummaries.first?.nextTask == task)
     }
 
-    @Test func inboxReviewViewModelConvertsCaptureToTaskAndProjectItem() {
+    @Test func inboxReviewViewModelPersistsTaskAndProjectItemRoutes() {
         let now = Date(timeIntervalSince1970: 10_000)
         let project = Project(name: "Posso")
         let taskRepository = FakeTaskRepository()
@@ -440,231 +440,219 @@ struct HomeExecutionViewModelTests {
             CaptureItem(title: "Explore pricing", projectID: project.id)
         ])
         let projectItemRepository = FakeProjectItemRepository()
+        let peopleRepository = FakePeopleMemoryRepository()
         let viewModel = InboxReviewViewModel(
-            taskRepository: taskRepository,
             projectRepository: FakeProjectRepository(projects: [project]),
             captureRepository: captureRepository,
-            projectItemRepository: projectItemRepository,
-            shoppingRepository: FakeShoppingRepository(),
-            initialCaptures: [],
-            initialProjects: [],
+            peopleMemoryRepository: peopleRepository,
+            captureRegistry: CaptureIntakeRegistry.standard(
+                taskRepository: taskRepository,
+                projectItemRepository: projectItemRepository,
+                shoppingRepository: FakeShoppingRepository(),
+                musicPracticeRepository: FakeMusicPracticeRepository(),
+                peopleMemoryRepository: peopleRepository
+            ),
             nowProvider: { now }
         )
 
         viewModel.load()
-        let taskConversionSucceeded = viewModel.convertCurrentCaptureToTask(
-            MyTaskFormData(title: "Fix onboarding", projectID: project.id)
-        )
-
-        #expect(taskConversionSucceeded == true)
+        #expect(viewModel.persistCurrentSelection() == true)
         #expect(taskRepository.tasks.count == 1)
         #expect(taskRepository.tasks.first?.projectID == project.id)
         #expect(captureRepository.captures.first?.processedAt == now)
+        #expect(captureRepository.captures.first?.resolvedRecordType == "task")
 
-        let projectItemConversionSucceeded = viewModel.convertCurrentCaptureToProjectItem(
-            kind: .maybe,
-            title: "Explore pricing",
-            notes: nil,
-            projectID: project.id,
-            source: nil,
-            pressure: .useful,
-            reviewAfter: nil
-        )
+        viewModel.selectDestination(CaptureDestination(moduleID: .tasks, kind: "project-maybe"))
+        viewModel.updateCurrentDraft { draft in
+            draft.projectItemPressure = .useful
+        }
 
-        #expect(projectItemConversionSucceeded == true)
+        #expect(viewModel.persistCurrentSelection() == true)
         #expect(projectItemRepository.items.count == 1)
         #expect(projectItemRepository.items.first?.kind == .maybe)
         #expect(projectItemRepository.items.first?.projectID == project.id)
     }
 
-    @Test func inboxReviewViewModelConvertsCaptureToShoppingItem() {
+    @Test func inboxReviewViewModelPersistsShoppingItem() {
         let now = Date(timeIntervalSince1970: 10_000)
         let captureRepository = FakeCaptureRepository(captures: [
             CaptureItem(title: "Coffee filters", notes: "Size 4")
         ])
         let shoppingRepository = FakeShoppingRepository()
+        let peopleRepository = FakePeopleMemoryRepository()
         let viewModel = InboxReviewViewModel(
-            taskRepository: FakeTaskRepository(),
             projectRepository: FakeProjectRepository(),
             captureRepository: captureRepository,
-            projectItemRepository: FakeProjectItemRepository(),
-            shoppingRepository: shoppingRepository,
-            initialCaptures: [],
-            initialProjects: [],
+            peopleMemoryRepository: peopleRepository,
+            captureRegistry: CaptureIntakeRegistry.standard(
+                taskRepository: FakeTaskRepository(),
+                projectItemRepository: FakeProjectItemRepository(),
+                shoppingRepository: shoppingRepository,
+                musicPracticeRepository: FakeMusicPracticeRepository(),
+                peopleMemoryRepository: peopleRepository
+            ),
             nowProvider: { now }
         )
 
         viewModel.load()
-        let conversionSucceeded = viewModel.convertCurrentCaptureToShoppingItem(
-            ShoppingItemFormData(
-                title: "Coffee filters",
-                notes: "Size 4",
-                category: "Household",
-                storeType: "Grocery",
-                storeName: "Rewe",
-                urgency: .needSoon,
-                necessity: .necessary
-            )
-        )
+        viewModel.selectDestination(CaptureDestination(moduleID: .shopping, kind: "shopping-item"))
+        viewModel.updateCurrentDraft { draft in
+            draft.shoppingCategory = "Household"
+            draft.shoppingStoreName = "Rewe"
+        }
 
-        #expect(conversionSucceeded == true)
+        #expect(viewModel.persistCurrentSelection() == true)
         #expect(shoppingRepository.items.count == 1)
         #expect(shoppingRepository.items.first?.title == "Coffee filters")
         #expect(shoppingRepository.items.first?.notes == "Size 4")
-        #expect(shoppingRepository.items.first?.category == "Household")
-        #expect(shoppingRepository.items.first?.storeType == "Grocery")
+        #expect(shoppingRepository.items.first?.listName == "Household")
         #expect(shoppingRepository.items.first?.storeName == "Rewe")
-        #expect(shoppingRepository.items.first?.urgency == .needSoon)
-        #expect(shoppingRepository.items.first?.necessity == .necessary)
         #expect(shoppingRepository.items.first?.status == .needed)
         #expect(shoppingRepository.items.first?.createdAt == now)
         #expect(captureRepository.captures.first?.processedAt == now)
         #expect(viewModel.captures.isEmpty)
     }
 
-    @Test func inboxReviewViewModelConvertsCaptureToPracticePiece() {
+    @Test func inboxReviewViewModelPersistsPracticePieceAndPersonMemory() {
         let now = Date(timeIntervalSince1970: 10_000)
         let captureRepository = FakeCaptureRepository(captures: [
-            CaptureItem(title: "Prelude in C", notes: "Hands separate")
+            CaptureItem(title: "Prelude in C", notes: "Hands separate"),
+            CaptureItem(title: "Sarah", notes: "Met at pottery class")
         ])
         let musicRepository = FakeMusicPracticeRepository()
+        let peopleRepository = FakePeopleMemoryRepository()
         let viewModel = InboxReviewViewModel(
-            taskRepository: FakeTaskRepository(),
             projectRepository: FakeProjectRepository(),
             captureRepository: captureRepository,
-            projectItemRepository: FakeProjectItemRepository(),
-            shoppingRepository: FakeShoppingRepository(),
-            musicPracticeRepository: musicRepository,
-            initialCaptures: [],
-            initialProjects: [],
+            peopleMemoryRepository: peopleRepository,
+            captureRegistry: CaptureIntakeRegistry.standard(
+                taskRepository: FakeTaskRepository(),
+                projectItemRepository: FakeProjectItemRepository(),
+                shoppingRepository: FakeShoppingRepository(),
+                musicPracticeRepository: musicRepository,
+                peopleMemoryRepository: peopleRepository
+            ),
             nowProvider: { now }
         )
 
         viewModel.load()
-        let conversionSucceeded = viewModel.convertCurrentCaptureToPracticePiece(
-            PracticePiece(title: "Prelude in C", notes: "Hands separate")
-        )
+        viewModel.selectDestination(CaptureDestination(moduleID: .musicPractice, kind: "practice-piece"))
+        viewModel.updateCurrentDraft { draft in
+            draft.practiceComposer = "Bach"
+        }
 
-        #expect(conversionSucceeded == true)
+        #expect(viewModel.persistCurrentSelection() == true)
         #expect(musicRepository.pieces.count == 1)
         #expect(musicRepository.pieces.first?.title == "Prelude in C")
         #expect(musicRepository.pieces.first?.notes == "Hands separate")
         #expect(captureRepository.captures.first?.processedAt == now)
+
+        viewModel.selectDestination(CaptureDestination(moduleID: .peopleMemory, kind: "person-memory"))
+        viewModel.updateCurrentDraft { draft in
+            draft.personContext = "Pottery class"
+            draft.personTagNames = ["Hobby"]
+        }
+
+        #expect(viewModel.persistCurrentSelection() == true)
+        #expect(peopleRepository.people.count == 1)
+        #expect(peopleRepository.people.first?.name == "Sarah")
+        #expect(peopleRepository.tags.map(\.name) == ["Hobby"])
     }
 
-    @Test func inboxReviewViewModelTempSkipMovesCurrentCaptureToBackOfDeck() {
+    @Test func inboxReviewViewModelSkipPersistsAndMovesCurrentCaptureToBackOfDeck() {
         let captureRepository = FakeCaptureRepository(captures: [
             CaptureItem(title: "First"),
             CaptureItem(title: "Second"),
             CaptureItem(title: "Third")
         ])
+        let peopleRepository = FakePeopleMemoryRepository()
         let viewModel = InboxReviewViewModel(
-            taskRepository: FakeTaskRepository(),
             projectRepository: FakeProjectRepository(),
             captureRepository: captureRepository,
-            projectItemRepository: FakeProjectItemRepository(),
-            shoppingRepository: FakeShoppingRepository(),
-            initialCaptures: [],
-            initialProjects: []
+            peopleMemoryRepository: peopleRepository,
+            captureRegistry: CaptureIntakeRegistry.standard(
+                taskRepository: FakeTaskRepository(),
+                projectItemRepository: FakeProjectItemRepository(),
+                shoppingRepository: FakeShoppingRepository(),
+                musicPracticeRepository: FakeMusicPracticeRepository(),
+                peopleMemoryRepository: peopleRepository
+            )
         )
 
         viewModel.load()
-        let skipped = viewModel.tempSkipCurrentCapture()
+        let skipped = viewModel.skipCurrentCapture()
 
         #expect(skipped == true)
         #expect(viewModel.captures.map(\.title) == ["Second", "Third", "First"])
         #expect(viewModel.currentCapture?.title == "Second")
+        #expect(captureRepository.captures.first(where: { $0.title == "First" })?.lastReviewAction == .skipped)
     }
 
-    @Test func inboxReviewShoppingConversionFailureKeepsCapturePending() {
+    @Test func inboxReviewShoppingPersistenceFailureKeepsCapturePending() {
         let now = Date(timeIntervalSince1970: 10_000)
         let capture = CaptureItem(title: "Milk")
         let captureRepository = FakeCaptureRepository(captures: [capture])
         let shoppingRepository = FakeShoppingRepository()
         shoppingRepository.shouldThrow = true
+        let peopleRepository = FakePeopleMemoryRepository()
         let viewModel = InboxReviewViewModel(
-            taskRepository: FakeTaskRepository(),
             projectRepository: FakeProjectRepository(),
             captureRepository: captureRepository,
-            projectItemRepository: FakeProjectItemRepository(),
-            shoppingRepository: shoppingRepository,
-            initialCaptures: [],
-            initialProjects: [],
+            peopleMemoryRepository: peopleRepository,
+            captureRegistry: CaptureIntakeRegistry.standard(
+                taskRepository: FakeTaskRepository(),
+                projectItemRepository: FakeProjectItemRepository(),
+                shoppingRepository: shoppingRepository,
+                musicPracticeRepository: FakeMusicPracticeRepository(),
+                peopleMemoryRepository: peopleRepository
+            ),
             nowProvider: { now }
         )
 
         viewModel.load()
-        let conversionSucceeded = viewModel.convertCurrentCaptureToShoppingItem(
-            ShoppingItemFormData(title: "Milk")
-        )
+        viewModel.selectDestination(CaptureDestination(moduleID: .shopping, kind: "shopping-item"))
+        let conversionSucceeded = viewModel.persistCurrentSelection()
 
         #expect(conversionSucceeded == false)
         #expect(shoppingRepository.items.isEmpty)
         #expect(captureRepository.captures.first?.processedAt == nil)
-        #expect(viewModel.currentCapture == capture)
-        #expect(viewModel.errorMessage?.contains("Unable to create shopping item") == true)
+        #expect(viewModel.currentCapture?.title == capture.title)
+        #expect(viewModel.errorMessage?.contains("failed") == true)
     }
 
-    @Test func inboxReviewMutationsRemovePendingCaptures() {
+    @Test func inboxReviewArchiveAndRevisitMoveCapturesBetweenPendingAndHistory() {
         let now = Date(timeIntervalSince1970: 10_000)
-        let project = Project(name: "Posso")
         let captureRepository = FakeCaptureRepository(captures: [
-            CaptureItem(title: "Fix onboarding", projectID: project.id),
+            CaptureItem(title: "Fix onboarding"),
             CaptureItem(title: "Archive me")
         ])
+        let peopleRepository = FakePeopleMemoryRepository()
         let viewModel = InboxReviewViewModel(
-            taskRepository: FakeTaskRepository(),
-            projectRepository: FakeProjectRepository(projects: [project]),
+            projectRepository: FakeProjectRepository(),
             captureRepository: captureRepository,
-            projectItemRepository: FakeProjectItemRepository(),
-            shoppingRepository: FakeShoppingRepository(),
-            initialCaptures: [],
-            initialProjects: [],
+            peopleMemoryRepository: peopleRepository,
+            captureRegistry: CaptureIntakeRegistry.standard(
+                taskRepository: FakeTaskRepository(),
+                projectItemRepository: FakeProjectItemRepository(),
+                shoppingRepository: FakeShoppingRepository(),
+                musicPracticeRepository: FakeMusicPracticeRepository(),
+                peopleMemoryRepository: peopleRepository
+            ),
             nowProvider: { now }
         )
 
         viewModel.load()
         #expect(viewModel.captures.count == 2)
 
-        #expect(
-            viewModel.convertCurrentCaptureToTask(
-                MyTaskFormData(title: "Fix onboarding", projectID: project.id)
-            ) == true
-        )
+        #expect(viewModel.persistCurrentSelection() == true)
         #expect(viewModel.captures.count == 1)
         #expect(viewModel.currentCapture?.title == "Archive me")
 
         #expect(viewModel.archiveCurrentCapture() == true)
         #expect(viewModel.captures.isEmpty)
-    }
-
-    @Test func parentRefreshCallbackIsInvokedAfterReviewMutation() {
-        let now = Date(timeIntervalSince1970: 10_000)
-        let project = Project(name: "Posso")
-        let captureRepository = FakeCaptureRepository(captures: [
-            CaptureItem(title: "Fix onboarding", projectID: project.id)
-        ])
-        let viewModel = InboxReviewViewModel(
-            taskRepository: FakeTaskRepository(),
-            projectRepository: FakeProjectRepository(projects: [project]),
-            captureRepository: captureRepository,
-            projectItemRepository: FakeProjectItemRepository(),
-            shoppingRepository: FakeShoppingRepository(),
-            initialCaptures: [],
-            initialProjects: [],
-            nowProvider: { now }
-        )
-        var callbackCount = 0
-
-        viewModel.load()
-
-        if viewModel.convertCurrentCaptureToTask(
-            MyTaskFormData(title: "Fix onboarding", projectID: project.id)
-        ) {
-            callbackCount += 1
-        }
-
-        #expect(callbackCount == 1)
+        #expect(viewModel.reviewHistory.count == 2)
+        #expect(viewModel.revisitCapture(viewModel.reviewHistory.first { $0.title == "Archive me" }!) == true)
+        #expect(viewModel.captures.map(\.title).contains("Archive me"))
     }
 
     @Test func todayViewModelExposesCurrentRoutineItemAndAdvances() {
@@ -1056,10 +1044,10 @@ private final class FakeShoppingRepository: ShoppingRepository {
         }
 
         if includeHistory {
-            return items.sortedForShoppingTrips()
+            return items.sortedForShoppingLists()
         }
 
-        return items.filter(\.isActive).sortedForShoppingTrips()
+        return items.filter(\.isActive).sortedForShoppingLists()
     }
 
     func fetchActiveShoppingItems() throws -> [ShoppingItem] {
@@ -1158,6 +1146,63 @@ private final class FakeMusicPracticeRepository: MusicPracticeRepository {
     func savePracticeSession(_ session: PracticeSession, replacingSessionWithID originalID: UUID?) throws {}
 
     func deletePracticeSession(withID id: UUID) throws {}
+}
+
+@MainActor
+private final class FakePeopleMemoryRepository: PeopleMemoryRepository {
+    var people: [PersonMemory]
+    var tags: [PersonTag]
+
+    init(people: [PersonMemory] = [], tags: [PersonTag] = []) {
+        self.people = people
+        self.tags = tags
+    }
+
+    func fetchPeople() throws -> [PersonMemory] {
+        people
+    }
+
+    func person(withID id: UUID) throws -> PersonMemory? {
+        people.first { $0.id == id }
+    }
+
+    func savePerson(_ person: PersonMemory, replacingPersonWithID originalID: UUID?) throws {
+        let targetID = originalID ?? person.id
+        if let index = people.firstIndex(where: { $0.id == targetID || $0.id == person.id }) {
+            people[index] = person
+        } else {
+            people.append(person)
+        }
+    }
+
+    func deletePerson(withID id: UUID) throws {
+        people.removeAll { $0.id == id }
+    }
+
+    func fetchTags() throws -> [PersonTag] {
+        tags
+    }
+
+    func tag(withID id: UUID) throws -> PersonTag? {
+        tags.first { $0.id == id }
+    }
+
+    func tag(withNormalizedKey normalizedKey: String) throws -> PersonTag? {
+        tags.first { $0.normalizedKey == normalizedKey }
+    }
+
+    func saveTag(_ tag: PersonTag, replacingTagWithID originalID: UUID?) throws {
+        let targetID = originalID ?? tag.id
+        if let index = tags.firstIndex(where: { $0.id == targetID || $0.id == tag.id }) {
+            tags[index] = tag
+        } else {
+            tags.append(tag)
+        }
+    }
+
+    func deleteTag(withID id: UUID) throws {
+        tags.removeAll { $0.id == id }
+    }
 }
 
 @MainActor

@@ -6,15 +6,16 @@ Home is the app's current home screen / secretary dashboard. Older docs may call
 
 ## Current Implemented Surface
 
-- persisted, reorderable Home widget board
+- persisted, reorderable Home widget board with in-place quick actions
 - quick capture and inbox review
 - pinned project and project-next-task widgets
 - today's calendar overview, next event, and Plan the Day widgets
 - active promises, due promise check-ins, and simple promise history
 - today's routines and current routine step widgets
 - Shopping module and Shopping Quick Add widgets
-- Health, Music Practice, Fitness, and People module widgets
+- Finance, Banners, Health, Music Practice, Fitness, People, Vices, and Debrief module widgets
 - lightweight pending Debrief summaries that can show linked project names and focus-task counts when available
+- a curated welcome banner and a header app-refresh countdown badge
 
 ## Possible Future Cards
 

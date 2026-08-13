@@ -4,17 +4,17 @@ import Testing
 
 @MainActor
 struct AlertRouteCoordinatorTests {
-    @Test func routeCoordinatorTreatsRoutineTargetsAsPendingRoutineRoutes() {
+    @Test func routeCoordinatorTreatsRoutineTargetsAsPendingRoutes() {
         let coordinator = AlertRouteCoordinator()
         let routineID = UUID(uuidString: "123E4567-E89B-12D3-A456-426614174400")!
 
         coordinator.open(target: .startRoutine(routineID))
 
-        #expect(coordinator.pendingRoutineRoute?.routineID == routineID)
-        #expect(coordinator.pendingRoutineRoute != nil)
+        #expect(coordinator.pendingRoute?.target == .openRoutine(routineID))
+        #expect(coordinator.pendingRoute != nil)
 
-        coordinator.clearPendingRoutineRoute()
+        coordinator.clearPendingRoute()
 
-        #expect(coordinator.pendingRoutineRoute == nil)
+        #expect(coordinator.pendingRoute == nil)
     }
 }

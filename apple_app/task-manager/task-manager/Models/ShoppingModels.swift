@@ -4,49 +4,12 @@ nonisolated enum ShoppingUrgency: String, CaseIterable, Codable, Sendable {
     case needSoon
     case nextTrip
     case someday
-
-    var displayName: String {
-        switch self {
-        case .needSoon:
-            return "Need Soon"
-        case .nextTrip:
-            return "Next Trip"
-        case .someday:
-            return "Someday"
-        }
-    }
-
-    var sortPriority: Int {
-        switch self {
-        case .needSoon:
-            return 0
-        case .nextTrip:
-            return 1
-        case .someday:
-            return 2
-        }
-    }
 }
 
 nonisolated enum ShoppingNecessity: String, CaseIterable, Codable, Sendable {
     case necessary
     case useful
     case optional
-
-    var displayName: String {
-        rawValue.capitalized
-    }
-
-    var sortPriority: Int {
-        switch self {
-        case .necessary:
-            return 0
-        case .useful:
-            return 1
-        case .optional:
-            return 2
-        }
-    }
 }
 
 nonisolated enum ShoppingItemStatus: String, CaseIterable, Codable, Sendable {
@@ -76,12 +39,11 @@ nonisolated enum ShoppingItemStatus: String, CaseIterable, Codable, Sendable {
 nonisolated struct ShoppingItem: Identifiable, Equatable, Sendable {
     let id: UUID
     var title: String
+    var listName: String
+    var price: Decimal?
     var notes: String?
-    var category: String?
-    var storeType: String?
+    var quantity: String?
     var storeName: String?
-    var urgency: ShoppingUrgency
-    var necessity: ShoppingNecessity
     var status: ShoppingItemStatus
     let createdAt: Date
     var updatedAt: Date
@@ -90,12 +52,11 @@ nonisolated struct ShoppingItem: Identifiable, Equatable, Sendable {
     init(
         id: UUID = UUID(),
         title: String,
+        listName: String = "General",
+        price: Decimal? = nil,
         notes: String? = nil,
-        category: String? = nil,
-        storeType: String? = nil,
+        quantity: String? = nil,
         storeName: String? = nil,
-        urgency: ShoppingUrgency = .nextTrip,
-        necessity: ShoppingNecessity = .necessary,
         status: ShoppingItemStatus = .needed,
         createdAt: Date = .now,
         updatedAt: Date? = nil,
@@ -105,12 +66,11 @@ nonisolated struct ShoppingItem: Identifiable, Equatable, Sendable {
 
         self.id = id
         self.title = Self.cleanedTitle(from: title) ?? title.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.listName = Self.cleanedTitle(from: listName) ?? "General"
+        self.price = price
         self.notes = Self.cleanedOptionalText(from: notes)
-        self.category = Self.cleanedOptionalText(from: category)
-        self.storeType = Self.cleanedOptionalText(from: storeType)
+        self.quantity = Self.cleanedOptionalText(from: quantity)
         self.storeName = Self.cleanedOptionalText(from: storeName)
-        self.urgency = urgency
-        self.necessity = necessity
         self.status = status
         self.createdAt = createdAt
         self.updatedAt = cleanedUpdatedAt
@@ -130,7 +90,7 @@ nonisolated struct ShoppingItem: Identifiable, Equatable, Sendable {
     }
 
     var tripGroupName: String {
-        storeType ?? "Unspecified"
+        listName
     }
 
     func updatingStatus(
@@ -140,12 +100,11 @@ nonisolated struct ShoppingItem: Identifiable, Equatable, Sendable {
         ShoppingItem(
             id: id,
             title: title,
+            listName: listName,
+            price: price,
             notes: notes,
-            category: category,
-            storeType: storeType,
+            quantity: quantity,
             storeName: storeName,
-            urgency: urgency,
-            necessity: necessity,
             status: status,
             createdAt: createdAt,
             updatedAt: date,
@@ -164,34 +123,22 @@ nonisolated struct ShoppingItem: Identifiable, Equatable, Sendable {
 }
 
 nonisolated struct ShoppingTripGroup: Identifiable, Equatable, Sendable {
-    let storeType: String?
+    let listName: String
     let items: [ShoppingItem]
 
-    var id: String {
-        storeType ?? "Unspecified"
-    }
+    var id: String { listName }
 
-    var title: String {
-        storeType ?? "Unspecified"
-    }
+    var title: String { listName }
 }
 
 extension Array where Element == ShoppingItem {
-    func sortedForShoppingTrips() -> [ShoppingItem] {
+    func sortedForShoppingLists() -> [ShoppingItem] {
         sorted { leftItem, rightItem in
-            let leftStore = leftItem.tripGroupName.localizedLowercase
-            let rightStore = rightItem.tripGroupName.localizedLowercase
+            let leftList = leftItem.listName.localizedLowercase
+            let rightList = rightItem.listName.localizedLowercase
 
-            if leftStore != rightStore {
-                return leftStore < rightStore
-            }
-
-            if leftItem.urgency.sortPriority != rightItem.urgency.sortPriority {
-                return leftItem.urgency.sortPriority < rightItem.urgency.sortPriority
-            }
-
-            if leftItem.necessity.sortPriority != rightItem.necessity.sortPriority {
-                return leftItem.necessity.sortPriority < rightItem.necessity.sortPriority
+            if leftList != rightList {
+                return leftList < rightList
             }
 
             if leftItem.createdAt != rightItem.createdAt {

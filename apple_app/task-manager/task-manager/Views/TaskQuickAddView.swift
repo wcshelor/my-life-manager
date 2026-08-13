@@ -18,17 +18,20 @@ struct TaskQuickAddView: View {
         case notes
         case newTaskGroup
     }
+    let projects: [Project]
     let taskGroups: [String]
     let reservedTaskIDs: Set<UUID>
     let onSave: (MyTask) -> Void
 
     init(
         initialFormData: MyTaskFormData = MyTaskFormData(),
+        projects: [Project] = [],
         taskGroups: [String] = [],
         reservedTaskIDs: Set<UUID> = [],
         onSave: @escaping (MyTask) -> Void
     ) {
         _formData = State(initialValue: initialFormData)
+        self.projects = projects
         self.taskGroups = taskGroups
         self.reservedTaskIDs = reservedTaskIDs
         self.onSave = onSave
@@ -132,6 +135,22 @@ struct TaskQuickAddView: View {
                 DisclosureGroup("Schedule and Status", isExpanded: $showsScheduleStatus) {
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle("Set Due Date", isOn: $formData.hasDueDate)
+
+                        LabeledContent("Project") {
+                            if projects.isEmpty {
+                                Text("Create a project first.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Picker("Project", selection: $formData.projectID) {
+                                    Text("None").tag(nil as UUID?)
+
+                                    ForEach(projects) { project in
+                                        Text(project.name).tag(project.id as UUID?)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            }
+                        }
 
                         if formData.hasDueDate {
                             labeledField("Due") {

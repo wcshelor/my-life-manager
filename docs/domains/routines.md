@@ -11,6 +11,7 @@ Support recurring morning, night, and custom checklists that help the user execu
 - `Routine`
 - `RoutineItem`
 - `RoutineCompletionLog`
+- `ViceRoutineUnlock`
 
 Current fields include:
 
@@ -28,7 +29,8 @@ Possible future fields:
 ## Interaction With Tasks / Planner
 
 Routine items may create or link to tasks when they represent concrete obligations. Routines should not write directly to Apple Calendar. If routine time needs scheduling, it should flow through the planner / scheduled-block system.
+Vice-linked routines are a special case: they act as pre-action gates for vices and should keep their own unlock-window state rather than mutating the standard daily completion flow.
 
 ## Status
 
-Implemented in Swift as user-authored routines with daily or selected-weekday recurrence, Home visibility, and per-day item-level completion logs.
+Implemented in Swift as user-authored routines with daily or selected-weekday recurrence, Home visibility, per-day item-level completion logs, dedicated routine screens, and vice-linked unlock support.

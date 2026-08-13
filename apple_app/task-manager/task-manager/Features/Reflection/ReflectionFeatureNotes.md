@@ -6,6 +6,8 @@ Scaffold only. No reflection UI, model, persistence, or view model is implemente
 
 Future feature area for structured reflection and anti-spiral journaling.
 
+See `docs/domains/future-modules/journaling_reflection.md` for the intended direction.
+
 ## Likely Future Objects
 
 - `ReflectionEntry`

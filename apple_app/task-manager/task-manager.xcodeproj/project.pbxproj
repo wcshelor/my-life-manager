@@ -26,6 +26,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Features/Home/HomeFeatureNotes.md,
+				Features/InboxReview/InboxReviewFeatureNotes.md,
 				Features/Logs/LogsFeatureNotes.md,
 				Features/Practice/PracticeFeatureNotes.md,
 				Features/Reflection/ReflectionFeatureNotes.md,
@@ -360,10 +361,10 @@
 				DEVELOPMENT_TEAM = 83KWTTM2DT;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
 				INFOPLIST_KEY_CFBundleDisplayName = Hauptschirm;
 				INFOPLIST_KEY_CFBundleName = Hauptschirm;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
@@ -399,10 +400,10 @@
 				DEVELOPMENT_TEAM = 83KWTTM2DT;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
 				INFOPLIST_KEY_CFBundleDisplayName = Hauptschirm;
 				INFOPLIST_KEY_CFBundleName = Hauptschirm;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Task Manager reads your calendars to find busy time and suggest task slots.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;

@@ -140,6 +140,54 @@ final class SettingsViewModel: ObservableObject {
         save(updatedSettings, errorPrefix: "Unable to save planner settings")
     }
 
+    func updateNotificationsEnabled(_ isEnabled: Bool) {
+        var updatedSettings = settings
+        updatedSettings.notificationsEnabled = isEnabled
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
+    func updateNotificationQuietHoursEnabled(_ isEnabled: Bool) {
+        var updatedSettings = settings
+        updatedSettings.notificationQuietHoursEnabled = isEnabled
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
+    func updateNotificationQuietHoursStart(_ timeOfDay: AlertTimeOfDay) {
+        var updatedSettings = settings
+        updatedSettings.notificationQuietHoursStart = timeOfDay
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
+    func updateNotificationQuietHoursEnd(_ timeOfDay: AlertTimeOfDay) {
+        var updatedSettings = settings
+        updatedSettings.notificationQuietHoursEnd = timeOfDay
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
+    func updateNotificationMaxNudgesPerDay(_ count: Int) {
+        var updatedSettings = settings
+        updatedSettings.notificationMaxNudgesPerDay = count
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
+    func updateNotificationDefaultPrivacyMode(_ mode: AlertPrivacyMode) {
+        var updatedSettings = settings
+        updatedSettings.notificationDefaultPrivacyMode = mode
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
+    func updateNotificationDefaultUrgency(_ urgency: AlertUrgency) {
+        var updatedSettings = settings
+        updatedSettings.notificationDefaultUrgency = urgency
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
+    func updateNotificationAvoidCalendarBusyPeriods(_ shouldAvoid: Bool) {
+        var updatedSettings = settings
+        updatedSettings.notificationAvoidCalendarBusyPeriods = shouldAvoid
+        save(updatedSettings, errorPrefix: "Unable to save notification settings")
+    }
+
     private func save(_ updatedSettings: AppSettings, errorPrefix: String) {
         do {
             try settingsRepository.saveSettings(updatedSettings)
@@ -158,6 +206,7 @@ final class SettingsViewModel: ObservableObject {
 struct SettingsView: View {
     @StateObject private var viewModel: SettingsViewModel
 
+    private let settingsRepository: any SettingsRepository
     private let homeLayoutRepository: any HomeLayoutRepository
     private let projectRepository: any ProjectRepository
     private let routineRepository: any RoutineRepository
@@ -174,6 +223,7 @@ struct SettingsView: View {
         calendarPermissionProvider: any CalendarPermissionProviding,
         calendarListingService: any CalendarListing
     ) {
+        self.settingsRepository = settingsRepository
         self.homeLayoutRepository = homeLayoutRepository
         self.projectRepository = projectRepository
         self.routineRepository = routineRepository
@@ -219,21 +269,73 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("Notifications") {
+                    Toggle("Allow Notifications", isOn: notificationsEnabledBinding)
+
+                    Group {
+                        Toggle("Use Quiet Hours", isOn: notificationQuietHoursEnabledBinding)
+
+                        if viewModel.settings.notificationQuietHoursEnabled {
+                            DatePicker(
+                                "Quiet Hours Start",
+                                selection: notificationQuietHoursStartBinding,
+                                displayedComponents: [.hourAndMinute]
+                            )
+
+                            DatePicker(
+                                "Quiet Hours End",
+                                selection: notificationQuietHoursEndBinding,
+                                displayedComponents: [.hourAndMinute]
+                            )
+                        }
+
+                        Stepper(value: notificationMaxNudgesBinding, in: 1 ... 10, step: 1) {
+                            LabeledContent("Daily Nudge Limit") {
+                                Text("\(viewModel.settings.notificationMaxNudgesPerDay)")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Picker("Default Privacy", selection: notificationDefaultPrivacyBinding) {
+                            ForEach(AlertPrivacyMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+
+                        Picker("Default Urgency", selection: notificationDefaultUrgencyBinding) {
+                            ForEach(AlertUrgency.allCases, id: \.self) { urgency in
+                                Text(urgency.displayName).tag(urgency)
+                            }
+                        }
+
+                        Toggle(
+                            "Avoid Busy Calendar Times",
+                            isOn: notificationAvoidBusyTimesBinding
+                        )
+                    }
+                    .disabled(viewModel.settings.notificationsEnabled == false)
+
+                    Text("Global notification defaults apply to new auto-generated nudges and new Banners. Quiet hours, daily caps, and busy-time avoidance affect scheduled Banner requests.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Banners") {
                     NavigationLink {
                         BannersView(
                             alertRepository: alertRepository,
                             alertScheduler: alertScheduler,
-                            routineRepository: routineRepository
+                            routineRepository: routineRepository,
+                            settingsRepository: settingsRepository
                         )
                     } label: {
                         LabeledContent("Manage Banners") {
-                            Text("Morning / Night")
+                            Text("Routine Alerts")
                                 .foregroundStyle(.secondary)
                         }
                     }
 
-                    Text("Create routine-linked local notifications that open a selected Routine.")
+                    Text("Create routine-linked local notifications that open a selected Routine at a fixed time or inside a random window.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -308,12 +410,79 @@ struct SettingsView: View {
         )
     }
 
+    private var notificationsEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.settings.notificationsEnabled },
+            set: { viewModel.updateNotificationsEnabled($0) }
+        )
+    }
+
+    private var notificationQuietHoursEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.settings.notificationQuietHoursEnabled },
+            set: { viewModel.updateNotificationQuietHoursEnabled($0) }
+        )
+    }
+
+    private var notificationQuietHoursStartBinding: Binding<Date> {
+        Binding(
+            get: { Self.date(for: viewModel.settings.notificationQuietHoursStart) },
+            set: { viewModel.updateNotificationQuietHoursStart(AlertTimeOfDay(date: $0)) }
+        )
+    }
+
+    private var notificationQuietHoursEndBinding: Binding<Date> {
+        Binding(
+            get: { Self.date(for: viewModel.settings.notificationQuietHoursEnd) },
+            set: { viewModel.updateNotificationQuietHoursEnd(AlertTimeOfDay(date: $0)) }
+        )
+    }
+
+    private var notificationMaxNudgesBinding: Binding<Int> {
+        Binding(
+            get: { viewModel.settings.notificationMaxNudgesPerDay },
+            set: { viewModel.updateNotificationMaxNudgesPerDay($0) }
+        )
+    }
+
+    private var notificationDefaultPrivacyBinding: Binding<AlertPrivacyMode> {
+        Binding(
+            get: { viewModel.settings.notificationDefaultPrivacyMode },
+            set: { viewModel.updateNotificationDefaultPrivacyMode($0) }
+        )
+    }
+
+    private var notificationDefaultUrgencyBinding: Binding<AlertUrgency> {
+        Binding(
+            get: { viewModel.settings.notificationDefaultUrgency },
+            set: { viewModel.updateNotificationDefaultUrgency($0) }
+        )
+    }
+
+    private var notificationAvoidBusyTimesBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.settings.notificationAvoidCalendarBusyPeriods },
+            set: { viewModel.updateNotificationAvoidCalendarBusyPeriods($0) }
+        )
+    }
+
     private var homeSummary: String {
         if viewModel.homeWidgetCount == 0 {
             return "Home is empty right now. Open customization to add widgets or restore the default layout."
         }
 
         return "Home currently shows \(viewModel.homeWidgetCount) widget\(viewModel.homeWidgetCount == 1 ? "" : "s")."
+    }
+
+    private static func date(for timeOfDay: AlertTimeOfDay) -> Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.year = 2000
+        components.month = 1
+        components.day = 1
+        components.hour = timeOfDay.hour
+        components.minute = timeOfDay.minute
+        return components.date ?? .now
     }
 
     @ViewBuilder

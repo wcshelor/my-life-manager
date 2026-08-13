@@ -53,6 +53,16 @@ final class SwiftDataSettingsRepository: SettingsRepository {
             || record.writeCalendarTitle != normalizedSettings.writeCalendarTitle
             || record.hiddenHomeWidgetKindsText != normalizedSettings.hiddenHomeWidgetKinds.joined(separator: "\n")
             || record.minimumGapMinutes != normalizedSettings.minimumGapMinutes
+            || record.notificationsEnabled != normalizedSettings.notificationsEnabled
+            || record.notificationQuietHoursEnabled != normalizedSettings.notificationQuietHoursEnabled
+            || record.notificationQuietHoursStartHour != normalizedSettings.notificationQuietHoursStart.hour
+            || record.notificationQuietHoursStartMinute != normalizedSettings.notificationQuietHoursStart.minute
+            || record.notificationQuietHoursEndHour != normalizedSettings.notificationQuietHoursEnd.hour
+            || record.notificationQuietHoursEndMinute != normalizedSettings.notificationQuietHoursEnd.minute
+            || record.notificationMaxNudgesPerDay != normalizedSettings.notificationMaxNudgesPerDay
+            || record.notificationDefaultPrivacyModeRawValue != normalizedSettings.notificationDefaultPrivacyMode.rawValue
+            || record.notificationDefaultUrgencyRawValue != normalizedSettings.notificationDefaultUrgency.rawValue
+            || record.notificationAvoidCalendarBusyPeriods != normalizedSettings.notificationAvoidCalendarBusyPeriods
             || record.defaultAssumedDurationMinutes != normalizedSettings.defaultAssumedDurationMinutes
             || record.plannerSuggestionCap != normalizedSettings.plannerSuggestionCap
     }

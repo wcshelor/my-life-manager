@@ -134,6 +134,36 @@ struct SettingsViewModelTests {
         #expect(reloaded.writeCalendarIdentifier == "tasks")
         #expect(reloaded.writeCalendarTitle == "Tasks")
     }
+
+    @Test func settingsViewModelPersistsNotificationValues() async throws {
+        let repository = FakeSettingsRepository()
+        let viewModel = SettingsViewModel(
+            settingsRepository: repository,
+            homeLayoutRepository: InMemoryHomeLayoutRepository(layout: .defaultLayout),
+            calendarPermissionProvider: StubCalendarPermissionService(status: .notDetermined),
+            calendarListingService: StubCalendarListingService()
+        )
+
+        await viewModel.loadIfNeeded()
+        viewModel.updateNotificationsEnabled(false)
+        viewModel.updateNotificationQuietHoursEnabled(true)
+        viewModel.updateNotificationQuietHoursStart(AlertTimeOfDay(hour: 22, minute: 15))
+        viewModel.updateNotificationQuietHoursEnd(AlertTimeOfDay(hour: 7, minute: 5))
+        viewModel.updateNotificationMaxNudgesPerDay(2)
+        viewModel.updateNotificationDefaultPrivacyMode(.titleOnly)
+        viewModel.updateNotificationDefaultUrgency(.timeSensitive)
+        viewModel.updateNotificationAvoidCalendarBusyPeriods(true)
+
+        let reloaded = try repository.loadSettings()
+        #expect(reloaded.notificationsEnabled == false)
+        #expect(reloaded.notificationQuietHoursEnabled)
+        #expect(reloaded.notificationQuietHoursStart == AlertTimeOfDay(hour: 22, minute: 15))
+        #expect(reloaded.notificationQuietHoursEnd == AlertTimeOfDay(hour: 7, minute: 5))
+        #expect(reloaded.notificationMaxNudgesPerDay == 2)
+        #expect(reloaded.notificationDefaultPrivacyMode == .titleOnly)
+        #expect(reloaded.notificationDefaultUrgency == .timeSensitive)
+        #expect(reloaded.notificationAvoidCalendarBusyPeriods)
+    }
 }
 
 @MainActor

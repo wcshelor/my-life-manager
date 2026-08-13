@@ -2,9 +2,9 @@
 
 ## Status
 
-Mixed status. The current Swift app already has a persisted Home widget board, widget add/remove/reorder/resize flows, module-grouped Add Widget screen, and a first set of available widgets for Capture, Tasks, Planner, Projects, Promises, Routines, Shopping, Health, Music Practice, Fitness, and People Memory.
+Mixed status. The current Swift app already has a persisted Home widget board, widget add/remove/reorder/resize flows, module-grouped Add Widget screen, and a first set of available widgets for Capture, Tasks, Planner, Projects, Promises, Routines, Shopping, Finance, Banners, Health, Music Practice, Fitness, People Memory, Vices, and Debriefs.
 
-This document is still a product sketch for future widgets and sub-module widgets. Individual ideas below may already exist, may be partially implemented, or may remain planned; check `HomeWidgetRegistry` for the current app truth.
+This document is still a product sketch for future widgets and sub-module widgets. Individual ideas below may already exist, may be partially implemented, or may remain planned; check `HomeWidgetRegistry` for the current app truth. The current board also supports per-widget quick actions and a few in-place command actions.
 
 ## Purpose
 

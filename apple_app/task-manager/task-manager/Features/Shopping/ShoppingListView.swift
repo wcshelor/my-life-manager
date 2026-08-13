@@ -4,10 +4,12 @@ import SwiftUI
 struct ShoppingListView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: ShoppingListViewModel
+    private let shoppingRepository: any ShoppingRepository
     @State private var listMode: ShoppingListMode = .active
     @State private var searchText = ""
-    @State private var quickAddTitle = ""
     @State private var editingItem: ShoppingItem?
+    @State private var isPresentingAddSheet = false
+    @State private var creatingListName = ""
 
     private let onChange: () -> Void
 
@@ -16,6 +18,7 @@ struct ShoppingListView: View {
         onChange: @escaping () -> Void = {}
     ) {
         self.onChange = onChange
+        self.shoppingRepository = shoppingRepository
         _viewModel = StateObject(
             wrappedValue: ShoppingListViewModel(shoppingRepository: shoppingRepository)
         )
@@ -32,7 +35,7 @@ struct ShoppingListView: View {
             .padding(.horizontal)
 
             if listMode == .active {
-                quickAdd
+                addButtonRow
             }
 
             if let errorMessage = viewModel.errorMessage {
@@ -52,10 +55,27 @@ struct ShoppingListView: View {
         }
         .sheet(item: $editingItem) { item in
             NavigationStack {
-                ShoppingItemFormView(initialItem: item) { updatedItem in
+                ShoppingItemFormSheet(
+                    title: "Edit Shopping Item",
+                    shoppingRepository: shoppingRepository,
+                    initialItem: item
+                ) { updatedItem in
                     viewModel.saveItem(updatedItem, replacingItemWithID: item.id)
                     onChange()
                     editingItem = nil
+                }
+            }
+        }
+        .sheet(isPresented: $isPresentingAddSheet) {
+            NavigationStack {
+                ShoppingItemFormSheet(
+                    title: "Add Shopping Item",
+                    shoppingRepository: shoppingRepository,
+                    initialItem: ShoppingItem(title: "", listName: creatingListName)
+                ) { newItem in
+                    viewModel.saveItem(newItem)
+                    onChange()
+                    isPresentingAddSheet = false
                 }
             }
         }
@@ -78,23 +98,55 @@ struct ShoppingListView: View {
         }
     }
 
-    private var quickAdd: some View {
-        HStack(spacing: 8) {
-            TextField("Add item", text: $quickAddTitle)
-                .textFieldStyle(.roundedBorder)
-                .submitLabel(.done)
-                .onSubmit(addQuickItem)
+    private var addButtonRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(viewModel.availableListNames(searchText: searchText), id: \.self) { listName in
+                    Button {
+                        creatingListName = listName
+                        isPresentingAddSheet = true
+                    } label: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "cart.fill")
+                                .font(.title3)
+                            Text(listName)
+                                .font(.caption.weight(.semibold))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                        }
+                        .frame(width: 88, height: 88)
+                        .foregroundStyle(.primary)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
 
-            Button {
-                addQuickItem()
-            } label: {
-                Label("Add", systemImage: "plus.circle.fill")
-                    .labelStyle(.iconOnly)
-                    .font(.title3)
+                Button {
+                    creatingListName = ""
+                    isPresentingAddSheet = true
+                } label: {
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.title3)
+                        Text("New List")
+                            .font(.caption.weight(.semibold))
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(width: 88, height: 88)
+                    .foregroundStyle(.primary)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
+                            .foregroundStyle(.secondary)
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .disabled(ShoppingItem.cleanedTitle(from: quickAddTitle) == nil)
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
     }
 
     private var activeList: some View {
@@ -105,7 +157,7 @@ struct ShoppingListView: View {
                 ContentUnavailableView(
                     "No Shopping Items",
                     systemImage: "cart",
-                    description: Text("Add an item when you notice something to buy.")
+                    description: Text("Tap the plus button to add something to a list.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if groups.isEmpty {
@@ -211,16 +263,6 @@ struct ShoppingListView: View {
             }
         }
     }
-
-    private func addQuickItem() {
-        guard ShoppingItem.cleanedTitle(from: quickAddTitle) != nil else {
-            return
-        }
-
-        viewModel.quickAdd(title: quickAddTitle)
-        quickAddTitle = ""
-        onChange()
-    }
 }
 
 private enum ShoppingListMode: String, CaseIterable, Identifiable {
@@ -256,12 +298,15 @@ private struct ShoppingItemRow: View {
             }
 
             HStack(spacing: 8) {
-                Label(item.urgency.displayName, systemImage: "clock")
-                Label(item.necessity.displayName, systemImage: "tag")
+                Label(item.listName, systemImage: "square.grid.2x2")
+                if let price = item.price {
+                    Label(price.formatted(.currency(code: "EUR")), systemImage: "eurosign.circle")
+                }
+                if let quantity = item.quantity {
+                    Label(quantity, systemImage: "number")
+                }
                 if let storeName = item.storeName {
                     Label(storeName, systemImage: "mappin.and.ellipse")
-                } else if let storeType = item.storeType {
-                    Label(storeType, systemImage: "storefront")
                 }
             }
             .font(.caption)
@@ -291,14 +336,202 @@ private struct ShoppingItemRow: View {
     }
 }
 
+struct ShoppingItemFormSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let shoppingRepository: any ShoppingRepository
+    let initialItem: ShoppingItem
+    let onSave: (ShoppingItem) -> Void
+
+    @State private var name = ""
+    @State private var listName = "General"
+    @State private var priceText = ""
+    @State private var notes = ""
+    @State private var quantity = ""
+    @State private var storeName = ""
+    @State private var listOptions: [String] = []
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case name
+        case price
+        case notes
+        case quantity
+        case store
+    }
+
+    init(
+        title: String,
+        shoppingRepository: any ShoppingRepository,
+        initialItem: ShoppingItem,
+        onSave: @escaping (ShoppingItem) -> Void
+    ) {
+        self.title = title
+        self.shoppingRepository = shoppingRepository
+        self.initialItem = initialItem
+        self.onSave = onSave
+        _name = State(initialValue: initialItem.title)
+        _listName = State(initialValue: initialItem.listName)
+        _priceText = State(initialValue: initialItem.price.map { String(describing: $0) } ?? "")
+        _notes = State(initialValue: initialItem.notes ?? "")
+        _quantity = State(initialValue: initialItem.quantity ?? "")
+        _storeName = State(initialValue: initialItem.storeName ?? "")
+    }
+
+    var body: some View {
+        Form {
+            Section("Item") {
+                TextField("Name", text: $name)
+                    .focused($focusedField, equals: .name)
+                TextField("Price", text: $priceText)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .price)
+            }
+
+            Section("List") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(listOptions, id: \.self) { option in
+                            listChip(option)
+                        }
+
+                        Button {
+                            listName = ""
+                            focusedField = .name
+                        } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: "plus")
+                                Text("New")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .frame(width: 88, height: 88)
+                            .foregroundStyle(.primary)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
+                                    .foregroundStyle(.secondary)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                TextField("List name", text: $listName)
+                    .focused($focusedField, equals: .name)
+            }
+
+            Section("Details") {
+                TextField("Notes", text: $notes, axis: .vertical)
+                    .lineLimit(2...5)
+                    .focused($focusedField, equals: .notes)
+                TextField("Quantity", text: $quantity)
+                    .focused($focusedField, equals: .quantity)
+                TextField("Store", text: $storeName)
+                    .focused($focusedField, equals: .store)
+            }
+        }
+        .navigationTitle(title)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    save()
+                }
+                .disabled(ShoppingItem.cleanedTitle(from: name) == nil)
+            }
+        }
+        .task {
+            listOptions = viewModelListOptions()
+            focusedField = .name
+        }
+    }
+
+    private func viewModelListOptions() -> [String] {
+        let stored = (try? shoppingRepository.fetchShoppingItems(includeHistory: true)) ?? []
+        let names = Set(stored.map(\.listName).filter { $0.isEmpty == false })
+        return Array(names).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func listChip(_ text: String) -> some View {
+        Button {
+            listName = text
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "square.grid.2x2")
+                Text(text)
+                    .font(.caption.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .frame(width: 88, height: 88)
+            .foregroundStyle(.primary)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(listName == text ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(listName == text ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func save() {
+        let cleanedName = ShoppingItem.cleanedTitle(from: name)
+        guard let cleanedName else {
+            return
+        }
+
+        let price = Decimal(string: priceText.trimmingCharacters(in: .whitespacesAndNewlines))
+        let item = ShoppingItem(
+            id: initialItem.id,
+            title: cleanedName,
+            listName: listName,
+            price: price,
+            notes: notes,
+            quantity: quantity,
+            storeName: storeName,
+            status: initialItem.status,
+            createdAt: initialItem.createdAt,
+            updatedAt: .now,
+            completedAt: initialItem.completedAt
+        )
+
+        onSave(item)
+    }
+}
+
 nonisolated struct ShoppingItemFormData: Equatable, Sendable {
     var title: String
+    var listName: String
+    var priceText: String
     var notes: String
-    var category: String
-    var storeType: String
+    var quantity: String
     var storeName: String
-    var urgency: ShoppingUrgency
-    var necessity: ShoppingNecessity
+
+    init(
+        title: String = "",
+        listName: String = "General",
+        priceText: String = "",
+        notes: String = "",
+        quantity: String = "",
+        storeName: String = ""
+    ) {
+        self.title = title
+        self.listName = listName
+        self.priceText = priceText
+        self.notes = notes
+        self.quantity = quantity
+        self.storeName = storeName
+    }
 
     init(
         title: String = "",
@@ -309,24 +542,26 @@ nonisolated struct ShoppingItemFormData: Equatable, Sendable {
         urgency: ShoppingUrgency = .nextTrip,
         necessity: ShoppingNecessity = .necessary
     ) {
-        self.title = title
-        self.notes = notes
-        self.category = category
-        self.storeType = storeType
-        self.storeName = storeName
-        self.urgency = urgency
-        self.necessity = necessity
+        self.init(
+            title: title,
+            listName: category.isEmpty ? "General" : category,
+            priceText: "",
+            notes: notes,
+            quantity: storeType,
+            storeName: storeName
+        )
+        _ = urgency
+        _ = necessity
     }
 
     init(item: ShoppingItem) {
         self.init(
             title: item.title,
+            listName: item.listName,
+            priceText: item.price.map { String(describing: $0) } ?? "",
             notes: item.notes ?? "",
-            category: item.category ?? "",
-            storeType: item.storeType ?? "",
-            storeName: item.storeName ?? "",
-            urgency: item.urgency,
-            necessity: item.necessity
+            quantity: item.quantity ?? "",
+            storeName: item.storeName ?? ""
         )
     }
 
@@ -344,155 +579,15 @@ nonisolated struct ShoppingItemFormData: Equatable, Sendable {
         return ShoppingItem(
             id: id,
             title: title,
+            listName: listName,
+            price: Decimal(string: priceText.trimmingCharacters(in: .whitespacesAndNewlines)),
             notes: notes,
-            category: category,
-            storeType: storeType,
+            quantity: quantity,
             storeName: storeName,
-            urgency: urgency,
-            necessity: necessity,
             status: status,
             createdAt: createdAt,
             updatedAt: updatedAt,
             completedAt: completedAt
         )
-    }
-}
-
-enum ShoppingItemFieldSuggestions {
-    static let categories = [
-        "Groceries",
-        "Household",
-        "Pharmacy",
-        "Personal Care",
-        "Hardware",
-        "Clothing",
-    ]
-
-    static let storeTypes = [
-        "Grocery",
-        "Drugstore",
-        "Hardware",
-        "Online",
-        "Department Store",
-        "Market",
-    ]
-
-    static let storeNames = [
-        "Aldi",
-        "dm",
-        "Rewe",
-        "Edeka",
-        "Amazon",
-    ]
-}
-
-struct ShoppingItemFormView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let initialItem: ShoppingItem
-    let onSave: (ShoppingItem) -> Void
-
-    @State private var formData: ShoppingItemFormData
-
-    init(
-        initialItem: ShoppingItem,
-        onSave: @escaping (ShoppingItem) -> Void
-    ) {
-        self.initialItem = initialItem
-        self.onSave = onSave
-        _formData = State(initialValue: ShoppingItemFormData(item: initialItem))
-    }
-
-    var body: some View {
-        Form {
-            Section("Item") {
-                TextField("Title", text: $formData.title)
-                TextField("Notes", text: $formData.notes, axis: .vertical)
-                    .lineLimit(2...5)
-            }
-
-            Section("Trip") {
-                suggestionField(
-                    title: "Category",
-                    text: $formData.category,
-                    suggestions: ShoppingItemFieldSuggestions.categories
-                )
-                suggestionField(
-                    title: "Store Type",
-                    text: $formData.storeType,
-                    suggestions: ShoppingItemFieldSuggestions.storeTypes
-                )
-                suggestionField(
-                    title: "Store",
-                    text: $formData.storeName,
-                    suggestions: ShoppingItemFieldSuggestions.storeNames
-                )
-            }
-
-            Section("Priority") {
-                Picker("Urgency", selection: $formData.urgency) {
-                    ForEach(ShoppingUrgency.allCases, id: \.self) { urgency in
-                        Text(urgency.displayName).tag(urgency)
-                    }
-                }
-
-                Picker("Necessity", selection: $formData.necessity) {
-                    ForEach(ShoppingNecessity.allCases, id: \.self) { necessity in
-                        Text(necessity.displayName).tag(necessity)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Shopping Item")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    save()
-                }
-                .disabled(ShoppingItem.cleanedTitle(from: formData.title) == nil)
-            }
-        }
-    }
-
-    private func suggestionField(
-        title: String,
-        text: Binding<String>,
-        suggestions: [String]
-    ) -> some View {
-        HStack {
-            TextField(title, text: text)
-
-            Menu {
-                ForEach(suggestions, id: \.self) { suggestion in
-                    Button(suggestion) {
-                        text.wrappedValue = suggestion
-                    }
-                }
-            } label: {
-                Image(systemName: "text.badge.plus")
-            }
-            .accessibilityLabel("\(title) Suggestions")
-        }
-    }
-
-    private func save() {
-        let now = Date()
-        guard let item = formData.makeItem(
-            id: initialItem.id,
-            status: initialItem.status,
-            createdAt: initialItem.createdAt,
-            updatedAt: now,
-            completedAt: initialItem.completedAt
-        ) else {
-            return
-        }
-
-        onSave(item)
     }
 }

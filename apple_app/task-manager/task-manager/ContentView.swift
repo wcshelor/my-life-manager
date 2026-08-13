@@ -123,41 +123,14 @@ private struct TaskManagerTabShell: View {
                     Label("Settings", systemImage: "gearshape")
                 }
         }
-        .sheet(item: pendingRoutineRouteBinding, onDismiss: {
-            alertRouteCoordinator.clearPendingRoutineRoute()
+        .sheet(item: pendingRouteBinding, onDismiss: {
+            alertRouteCoordinator.clearPendingRoute()
         }) { route in
-            NavigationStack {
-                RoutineSessionView(
-                    viewModel: notificationHomeViewModel,
-                    registry: HomeWidgetRegistry.standard,
-                    taskRepository: appEnvironment.taskRepository,
-                    projectRepository: appEnvironment.projectRepository,
-                    captureRepository: appEnvironment.captureRepository,
-                    projectItemRepository: appEnvironment.projectItemRepository,
-                    scheduledBlockRepository: appEnvironment.scheduledBlockRepository,
-                    settingsRepository: appEnvironment.settingsRepository,
-                    calendarPermissionProvider: appEnvironment.calendarPermissionProvider,
-                    calendarListingService: appEnvironment.calendarListingService,
-                    calendarReader: appEnvironment.calendarReader,
-                    calendarWriter: appEnvironment.calendarWriter,
-                    calendarReconciler: appEnvironment.calendarReconciler,
-                    calendarChangeObserver: appEnvironment.calendarChangeObserver,
-                    promiseRepository: appEnvironment.promiseRepository,
-                    shoppingRepository: appEnvironment.shoppingRepository,
-                    healthRepository: appEnvironment.healthRepository,
-                    musicPracticeRepository: appEnvironment.musicPracticeRepository,
-                    fitnessRepository: appEnvironment.fitnessRepository,
-                    peopleMemoryRepository: appEnvironment.peopleMemoryRepository,
-                    viceRepository: appEnvironment.viceRepository,
-                    calendarBlockFocusRepository: appEnvironment.calendarBlockFocusRepository,
-                    debriefRepository: appEnvironment.debriefRepository,
-                    financeRepository: appEnvironment.financeRepository,
-                    routineID: route.routineID
-                )
-            }
-            .task {
-                notificationHomeViewModel.load()
-            }
+            AppNotificationRouteSheet(
+                route: route,
+                appEnvironment: appEnvironment,
+                homeViewModel: notificationHomeViewModel
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(iOS)
@@ -165,13 +138,13 @@ private struct TaskManagerTabShell: View {
         #endif
     }
 
-    private var pendingRoutineRouteBinding: Binding<AlertPendingRoutineRoute?> {
+    private var pendingRouteBinding: Binding<AlertPendingRoute?> {
         Binding(
             get: {
-                alertRouteCoordinator.pendingRoutineRoute
+                alertRouteCoordinator.pendingRoute
             },
             set: { newValue in
-                alertRouteCoordinator.pendingRoutineRoute = newValue
+                alertRouteCoordinator.pendingRoute = newValue
             }
         )
     }

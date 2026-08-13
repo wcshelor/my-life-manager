@@ -30,6 +30,16 @@ Block Focus is driven by EventKit events but is stored in SwiftData.
 
 This keeps manual calendar planning intact while adding app-owned context around the event.
 
+## Current Implementation
+
+The Swift app already has first-pass Block Focus support:
+
+- `CalendarBlockFocusModels.swift`
+- `CalendarBlockFocusRecord`
+- `SwiftDataCalendarBlockFocusRepository`
+- deterministic project matching from calendar-event titles
+- linked-task capture for later Debrief and project history surfaces
+
 ## Project Recognition
 
 The app can infer a project from the event title using simple deterministic matching.
@@ -93,3 +103,6 @@ Expected repository behavior:
 - fetch by date range
 - fetch by linked project
 
+## Status
+
+Implemented as a first-pass app-owned context layer for calendar work blocks. The current behavior is intentionally deterministic and read-oriented, with writeback still limited to the app-owned SwiftData store.

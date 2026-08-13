@@ -1,11 +1,17 @@
 import Combine
 import SwiftUI
 
+nonisolated enum PeopleMemoryInitialRoute: Equatable, Sendable {
+    case studyDueNames
+}
+
 struct PeopleMemoryView: View {
     @StateObject private var viewModel: PeopleMemoryViewModel
     @State private var sheetDestination: SheetDestination?
     @State private var quickName = ""
+    @State private var hasAppliedInitialRoute = false
     private let onChanged: () -> Void
+    private let initialRoute: PeopleMemoryInitialRoute?
 
     private enum SheetDestination: Identifiable {
         case addPerson
@@ -24,13 +30,16 @@ struct PeopleMemoryView: View {
         }
     }
 
+    @MainActor
     init(
         peopleMemoryRepository: any PeopleMemoryRepository,
+        initialRoute: PeopleMemoryInitialRoute? = nil,
         onChanged: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(
             wrappedValue: PeopleMemoryViewModel(peopleMemoryRepository: peopleMemoryRepository)
         )
+        self.initialRoute = initialRoute
         self.onChanged = onChanged
     }
 
@@ -114,6 +123,20 @@ struct PeopleMemoryView: View {
         }
         .task {
             viewModel.loadIfNeeded()
+            applyInitialRouteIfNeeded()
+        }
+    }
+
+    private func applyInitialRouteIfNeeded() {
+        guard hasAppliedInitialRoute == false, let initialRoute else {
+            return
+        }
+
+        switch initialRoute {
+        case .studyDueNames:
+            viewModel.startStudy()
+            sheetDestination = .study
+            hasAppliedInitialRoute = true
         }
     }
 

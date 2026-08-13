@@ -6,6 +6,8 @@ Scaffold only. No general logging UI, model, persistence, or view model is imple
 
 Future feature area for lightweight personal records such as workouts, meals, mood notes, meditation, and generic life logs.
 
+Use `docs/domains/future-modules/life_logs.md` for the generic log direction and `docs/domains/future-modules/health.md` for the Health-owned structured-log surfaces.
+
 ## Likely Future Objects
 
 - generic log entry

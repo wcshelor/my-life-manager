@@ -311,6 +311,12 @@ nonisolated struct CaptureItem: Identifiable, Equatable, Sendable {
     var updatedAt: Date
     var processedAt: Date?
     var archivedAt: Date?
+    var lastReviewedAt: Date?
+    var lastReviewAction: CaptureReviewAction?
+    var lastReviewedModuleID: CaptureModuleID?
+    var lastReviewedKindID: String?
+    var resolvedRecordType: String?
+    var resolvedRecordID: UUID?
     var convertedTaskID: UUID?
     var convertedProjectItemID: UUID?
 
@@ -324,6 +330,12 @@ nonisolated struct CaptureItem: Identifiable, Equatable, Sendable {
         updatedAt: Date? = nil,
         processedAt: Date? = nil,
         archivedAt: Date? = nil,
+        lastReviewedAt: Date? = nil,
+        lastReviewAction: CaptureReviewAction? = .created,
+        lastReviewedModuleID: CaptureModuleID? = nil,
+        lastReviewedKindID: String? = nil,
+        resolvedRecordType: String? = nil,
+        resolvedRecordID: UUID? = nil,
         convertedTaskID: UUID? = nil,
         convertedProjectItemID: UUID? = nil
     ) {
@@ -336,6 +348,12 @@ nonisolated struct CaptureItem: Identifiable, Equatable, Sendable {
         self.updatedAt = updatedAt ?? createdAt
         self.processedAt = processedAt
         self.archivedAt = archivedAt
+        self.lastReviewedAt = lastReviewedAt
+        self.lastReviewAction = lastReviewAction
+        self.lastReviewedModuleID = lastReviewedModuleID
+        self.lastReviewedKindID = MyTask.cleanedOptionalText(from: lastReviewedKindID)
+        self.resolvedRecordType = MyTask.cleanedOptionalText(from: resolvedRecordType)
+        self.resolvedRecordID = resolvedRecordID
         self.convertedTaskID = convertedTaskID
         self.convertedProjectItemID = convertedProjectItemID
     }
@@ -359,13 +377,93 @@ nonisolated struct CaptureItem: Identifiable, Equatable, Sendable {
     ) {
         processedAt = date
         updatedAt = date
+        lastReviewedAt = date
+        lastReviewAction = .processed
         self.convertedTaskID = convertedTaskID
         self.convertedProjectItemID = convertedProjectItemID
+        if let convertedTaskID {
+            resolvedRecordType = "task"
+            resolvedRecordID = convertedTaskID
+            lastReviewedModuleID = .tasks
+            lastReviewedKindID = "task"
+        } else if let convertedProjectItemID {
+            resolvedRecordType = "projectItem"
+            resolvedRecordID = convertedProjectItemID
+            lastReviewedModuleID = .tasks
+            lastReviewedKindID = "project-item"
+        }
     }
 
-    mutating func archive(at date: Date = .now) {
+    mutating func markRouted(
+        to destination: CaptureDestination,
+        at date: Date = .now
+    ) {
+        updatedAt = date
+        lastReviewedAt = date
+        lastReviewAction = .routed
+        lastReviewedModuleID = destination.moduleID
+        lastReviewedKindID = destination.kind
+    }
+
+    mutating func markProcessed(
+        at date: Date = .now,
+        destination: CaptureDestination,
+        resolvedRecordType: String,
+        resolvedRecordID: UUID? = nil
+    ) {
+        processedAt = date
+        updatedAt = date
+        lastReviewedAt = date
+        lastReviewAction = .processed
+        lastReviewedModuleID = destination.moduleID
+        lastReviewedKindID = destination.kind
+        self.resolvedRecordType = MyTask.cleanedOptionalText(from: resolvedRecordType)
+        self.resolvedRecordID = resolvedRecordID
+        if resolvedRecordType == "task" {
+            convertedTaskID = resolvedRecordID
+            convertedProjectItemID = nil
+        } else if resolvedRecordType == "projectItem" {
+            convertedProjectItemID = resolvedRecordID
+            convertedTaskID = nil
+        } else {
+            convertedTaskID = nil
+            convertedProjectItemID = nil
+        }
+    }
+
+    mutating func markSkipped(
+        at date: Date = .now,
+        destination: CaptureDestination? = nil
+    ) {
+        updatedAt = date
+        lastReviewedAt = date
+        lastReviewAction = .skipped
+        if let destination {
+            lastReviewedModuleID = destination.moduleID
+            lastReviewedKindID = destination.kind
+        }
+    }
+
+    mutating func archive(
+        at date: Date = .now,
+        destination: CaptureDestination? = nil
+    ) {
         archivedAt = date
         updatedAt = date
+        lastReviewedAt = date
+        lastReviewAction = .archived
+        if let destination {
+            lastReviewedModuleID = destination.moduleID
+            lastReviewedKindID = destination.kind
+        }
+    }
+
+    mutating func revisit(at date: Date = .now) {
+        processedAt = nil
+        archivedAt = nil
+        updatedAt = date
+        lastReviewedAt = date
+        lastReviewAction = .revisited
     }
 
     static func cleanedTitle(from rawTitle: String) -> String? {

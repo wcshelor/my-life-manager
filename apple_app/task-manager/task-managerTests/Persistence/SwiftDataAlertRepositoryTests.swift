@@ -16,10 +16,11 @@ struct SwiftDataAlertRepositoryTests {
     @Test @MainActor func alertRepositoryUpdatesTemplateInPlace() throws {
         let repository = try makeRepository()
         let original = makeTemplate()
+        let originalRoutineID = try #require(original.routineID)
         let edited = AlertTemplate(
             id: original.id,
             title: "Night Banner",
-            target: .openRoutine(original.routineID),
+            target: .openRoutine(originalRoutineID),
             trigger: .fixedTime(AlertFixedTimeTrigger(hour: 21, minute: 0)),
             urgency: .timeSensitive,
             privacyMode: .titleOnly,

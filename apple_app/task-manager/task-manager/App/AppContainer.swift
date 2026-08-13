@@ -31,6 +31,7 @@ struct AppContainer {
     let calendarReconciler: any CalendarReconciling
     let calendarChangeObserver: any CalendarChangeObserving
 
+    @MainActor
     static func makeLive() throws -> AppContainer {
         let modelContainer = try ModelContainerFactory.makeDefaultContainer()
         let taskRepository = SwiftDataTaskRepository(modelContainer: modelContainer)
@@ -44,7 +45,6 @@ struct AppContainer {
             modelContainer: modelContainer
         )
         let alertRepository = SwiftDataAlertRepository(modelContainer: modelContainer)
-        let alertScheduler = AlertScheduler()
         let alertRouteCoordinator = AlertRouteCoordinator()
         let homeLayoutRepository = SwiftDataHomeLayoutRepository(
             modelContainer: modelContainer
@@ -73,6 +73,11 @@ struct AppContainer {
         let calendarReader = EventKitCalendarReader(
             eventStore: calendarEventStore,
             settingsRepository: settingsRepository
+        )
+        let alertScheduler = AlertScheduler(
+            notificationCenter: LiveAlertNotificationCenter(),
+            settingsRepository: settingsRepository,
+            calendarReader: calendarReader
         )
         let calendarWriter = EventKitCalendarWriter(
             eventStore: calendarEventStore,
@@ -145,6 +150,7 @@ struct AppContainer {
     }
     #endif
 
+    @MainActor
     static func makePreview(
         seedTasks: [MyTask] = MyTask.sampleTasks
     ) -> AppContainer {
@@ -160,7 +166,6 @@ struct AppContainer {
             modelContainer: modelContainer
         )
         let alertRepository = SwiftDataAlertRepository(modelContainer: modelContainer)
-        let alertScheduler = AlertScheduler(notificationCenter: NoopAlertNotificationCenter())
         let alertRouteCoordinator = AlertRouteCoordinator()
         let homeLayoutRepository = SwiftDataHomeLayoutRepository(
             modelContainer: modelContainer
@@ -181,6 +186,11 @@ struct AppContainer {
         let calendarPermissionProvider = StubCalendarPermissionService()
         let calendarListingService = StubCalendarListingService()
         let calendarReader = StubCalendarReader()
+        let alertScheduler = AlertScheduler(
+            notificationCenter: NoopAlertNotificationCenter(),
+            settingsRepository: settingsRepository,
+            calendarReader: calendarReader
+        )
         let calendarWriter = StubCalendarWriter()
         let calendarReconciler = StubCalendarReconciler()
         let calendarChangeObserver = StubCalendarChangeObserver()

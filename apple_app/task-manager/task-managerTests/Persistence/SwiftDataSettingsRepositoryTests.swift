@@ -67,6 +67,39 @@ struct SwiftDataSettingsRepositoryTests {
         #expect(reloadedSettings.hiddenHomeWidgetKinds == ["healthModule", "tasksModule"])
     }
 
+    @Test @MainActor func settingsRepositoryPersistsNotificationPreferences() throws {
+        let repository = try makeRepository()
+        let updatedSettings = AppSettings(
+            excludedReadCalendarTitles: [],
+            writeCalendarIdentifier: "",
+            writeCalendarTitle: "Tasks",
+            minimumGapMinutes: 15,
+            notificationsEnabled: false,
+            notificationQuietHoursEnabled: true,
+            notificationQuietHoursStart: AlertTimeOfDay(hour: 21, minute: 30),
+            notificationQuietHoursEnd: AlertTimeOfDay(hour: 6, minute: 45),
+            notificationMaxNudgesPerDay: 2,
+            notificationDefaultPrivacyMode: .titleOnly,
+            notificationDefaultUrgency: .timeSensitive,
+            notificationAvoidCalendarBusyPeriods: true,
+            defaultAssumedDurationMinutes: 30,
+            plannerSuggestionCap: 5
+        )
+
+        try repository.saveSettings(updatedSettings)
+
+        let reloadedSettings = try repository.loadSettings()
+
+        #expect(reloadedSettings.notificationsEnabled == false)
+        #expect(reloadedSettings.notificationQuietHoursEnabled)
+        #expect(reloadedSettings.notificationQuietHoursStart == AlertTimeOfDay(hour: 21, minute: 30))
+        #expect(reloadedSettings.notificationQuietHoursEnd == AlertTimeOfDay(hour: 6, minute: 45))
+        #expect(reloadedSettings.notificationMaxNudgesPerDay == 2)
+        #expect(reloadedSettings.notificationDefaultPrivacyMode == .titleOnly)
+        #expect(reloadedSettings.notificationDefaultUrgency == .timeSensitive)
+        #expect(reloadedSettings.notificationAvoidCalendarBusyPeriods)
+    }
+
     @Test @MainActor func settingsRepositoryBackfillsMissingHiddenHomeWidgetKinds() throws {
         let container = try ModelContainerFactory.makeInMemoryContainer()
         let record = AppSettingsRecord(settings: .mvpDefault)

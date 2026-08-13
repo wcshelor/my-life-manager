@@ -3,27 +3,27 @@ import Combine
 
 @MainActor
 final class AlertRouteCoordinator: ObservableObject {
-    @Published var pendingRoutineRoute: AlertPendingRoutineRoute?
+    @Published var pendingRoute: AlertPendingRoute?
 
     func openRoutine(_ routineID: UUID) {
-        pendingRoutineRoute = AlertPendingRoutineRoute(routineID: routineID)
+        pendingRoute = AlertPendingRoute(target: .openRoutine(routineID))
     }
 
     func open(target: AlertTarget) {
-        openRoutine(target.mvpRoutingTarget.routineID)
+        pendingRoute = AlertPendingRoute(target: target.resolvedRoutingTarget)
     }
 
-    func clearPendingRoutineRoute() {
-        pendingRoutineRoute = nil
+    func clearPendingRoute() {
+        pendingRoute = nil
     }
 }
 
-nonisolated struct AlertPendingRoutineRoute: Identifiable, Equatable, Sendable {
+nonisolated struct AlertPendingRoute: Identifiable, Equatable, Sendable {
     let id: UUID
-    let routineID: UUID
+    let target: AlertTarget
 
-    init(id: UUID = UUID(), routineID: UUID) {
+    init(id: UUID = UUID(), target: AlertTarget) {
         self.id = id
-        self.routineID = routineID
+        self.target = target
     }
 }

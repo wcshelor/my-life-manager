@@ -146,7 +146,7 @@ nonisolated struct CalendarProjectMatcher {
 }
 
 private extension Array where Element == String {
-    func containsContiguousPhrase(_ phraseTokens: [String]) -> Bool {
+    nonisolated func containsContiguousPhrase(_ phraseTokens: [String]) -> Bool {
         guard phraseTokens.isEmpty == false, count >= phraseTokens.count else {
             return false
         }
